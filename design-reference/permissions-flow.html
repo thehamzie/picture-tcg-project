@@ -1,0 +1,132 @@
+<!--
+  Design reference exported from an in-chat mockup tool — not meant to be opened directly in a browser.
+  Read as code for layout, spacing, and interaction structure when building the React Native screen;
+  this is a reference, not literal markup to port.
+
+  CSS custom properties like var(--surface-1), var(--surface-2), var(--text-secondary), var(--fill-accent),
+  and var(--on-accent) are host-theme tokens from the mockup tool and are NOT defined in this file. Treat them as:
+    --surface-1 / --surface-2  -> light neutral background surfaces
+    --text-secondary           -> muted gray body/label text
+    --fill-accent / --on-accent -> the app's primary brand/accent color (not yet decided — see CLAUDE.md
+                                    open decisions) and its contrasting text color
+
+  Hardcoded hex colors (#D85A30, #7F77DD, #1D9E75) ARE the real intended brand colors (adventure/cozy/calm
+  from the vibe palette) and should be preserved — see CLAUDE.md for the full color table.
+
+  The #sheet element deliberately uses plain, hardcoded system-gray colors (#F2F2F2, #1C1C1E, #007AFF, etc.)
+  rather than the app's theme — it's simulating the native OS permission dialog, which the app doesn't control
+  the styling of. Keep that element visually generic/system-styled in the real implementation; it should NOT
+  pull from the app's brand colors. In the real app this isn't custom UI at all — it's whatever
+  expo-camera / expo-notifications' permission request triggers natively on iOS/Android.
+
+  Icons use Tabler Icons font classes (e.g. "ti ti-camera") as a stand-in — swap for @expo/vector-icons'
+  Tabler/Feather equivalents in the real app.
+-->
+
+<h2 class="sr-only">Mockup of Everdot's permission priming screens for camera access and notifications, each explaining why the permission is needed before triggering a simulated native system dialog, with a skip option and a final confirmation screen.</h2>
+
+<div style="max-width:300px;margin:0 auto;">
+  <div style="background:var(--surface-1);border-radius:40px;padding:10px;border:0.5px solid var(--border);">
+    <div style="background:var(--surface-2);border-radius:32px;padding:20px 20px 16px;min-height:400px;display:flex;flex-direction:column;position:relative;overflow:hidden;">
+
+      <div id="content" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:0 6px;">
+        <div id="p-icon" style="width:84px;height:84px;border-radius:50%;display:flex;align-items:center;justify-content:center;">
+          <i id="p-icon-i" style="font-size:34px;color:#fff;" aria-hidden="true"></i>
+        </div>
+        <p id="p-title" style="font-size:17px;font-weight:500;margin:0;"></p>
+        <p id="p-sub" style="font-size:13px;color:var(--text-secondary);margin:0;line-height:1.5;max-width:230px;"></p>
+        <button id="p-btn" style="width:100%;font-size:14px;font-weight:500;background:var(--fill-accent);color:var(--on-accent);border:none;margin-top:4px;"></button>
+        <button id="p-skip" style="background:transparent;border:none;font-size:12px;color:var(--text-secondary);padding:2px;">not now</button>
+      </div>
+
+      <div id="dots" style="display:flex;justify-content:center;gap:6px;margin:10px 0 2px;"></div>
+
+      <div id="sheet" style="position:absolute;left:0;right:0;bottom:0;background:#F2F2F2;border-radius:14px 14px 0 0;transform:translateY(100%);transition:transform 0.35s ease-out;padding:14px 0 0;">
+        <div style="width:36px;height:4px;border-radius:2px;background:#C7C7C7;margin:0 auto 12px;"></div>
+        <p style="font-size:13px;font-weight:600;color:#1C1C1E;margin:0 16px 4px;text-align:center;">"everdot" Would Like to<br/>Access <span id="sheet-target"></span></p>
+        <p id="sheet-body" style="font-size:12px;color:#3C3C43;margin:0 16px 14px;text-align:center;"></p>
+        <div style="display:flex;border-top:1px solid #D6D6D6;">
+          <button id="sheet-deny" style="flex:1;background:transparent;border:none;border-radius:0;font-size:14px;color:#007AFF;padding:12px 0;border-right:1px solid #D6D6D6;">Don't Allow</button>
+          <button id="sheet-allow" style="flex:1;background:transparent;border:none;border-radius:0;font-size:14px;font-weight:600;color:#007AFF;padding:12px 0;">Allow</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const steps = [
+  {
+    key: 'camera', bg: '#D85A30', icon: 'ti-camera',
+    title: "let's get your camera ready",
+    sub: 'everdot needs your camera and photos to capture or choose today\u2019s picture.',
+    btn: 'allow access',
+    sheetTarget: 'Your Camera and Photos',
+    sheetBody: 'This lets you take a new photo or choose one each day.'
+  },
+  {
+    key: 'notifications', bg: '#7F77DD', icon: 'ti-bell',
+    title: "don't forget your daily card",
+    sub: 'turn on one gentle reminder a day so you never miss capturing a moment.',
+    btn: 'turn on reminders',
+    sheetTarget: 'Send You Notifications',
+    sheetBody: 'We\u2019ll send one reminder a day. Nothing more.'
+  },
+  {
+    key: 'done', bg: '#1D9E75', icon: 'ti-check',
+    title: 'you\u2019re all set',
+    sub: 'let\u2019s start your collection.',
+    btn: 'continue'
+  }
+];
+let step = 0;
+const pIcon = document.getElementById('p-icon');
+const pIconI = document.getElementById('p-icon-i');
+const pTitle = document.getElementById('p-title');
+const pSub = document.getElementById('p-sub');
+const pBtn = document.getElementById('p-btn');
+const pSkip = document.getElementById('p-skip');
+const dots = document.getElementById('dots');
+const sheet = document.getElementById('sheet');
+const sheetTarget = document.getElementById('sheet-target');
+const sheetBody = document.getElementById('sheet-body');
+
+function render() {
+  const s = steps[step];
+  pIcon.style.background = s.bg;
+  pIconI.className = 'ti ' + s.icon;
+  pTitle.textContent = s.title;
+  pSub.textContent = s.sub;
+  pBtn.textContent = s.btn;
+  pSkip.style.visibility = s.key === 'done' ? 'hidden' : 'visible';
+  dots.style.visibility = s.key === 'done' ? 'hidden' : 'visible';
+  dots.innerHTML = steps.slice(0, 2).map((_, i) => '<span style="width:' + (i === step ? '16px' : '6px') + ';height:6px;border-radius:3px;background:' + (i === step ? 'var(--fill-accent)' : 'var(--border-strong)') + ';display:inline-block;transition:width 0.25s;"></span>').join('');
+}
+render();
+
+function advance() {
+  step = step === steps.length - 1 ? 0 : step + 1;
+  render();
+}
+
+pBtn.addEventListener('click', () => {
+  const s = steps[step];
+  if (s.key === 'done') {
+    advance();
+    return;
+  }
+  sheetTarget.textContent = s.sheetTarget;
+  sheetBody.textContent = s.sheetBody;
+  sheet.style.transform = 'translateY(0)';
+});
+
+pSkip.addEventListener('click', advance);
+
+function dismissSheet() {
+  sheet.style.transform = 'translateY(100%)';
+  setTimeout(advance, 300);
+}
+document.getElementById('sheet-allow').addEventListener('click', dismissSheet);
+document.getElementById('sheet-deny').addEventListener('click', dismissSheet);
+</script>

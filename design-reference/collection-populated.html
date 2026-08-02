@@ -1,0 +1,214 @@
+<!--
+  Design reference exported from an in-chat mockup tool — not meant to be opened directly in a browser.
+  Read as code for layout, spacing, and interaction structure when building the React Native screen;
+  this is a reference, not literal markup to port.
+
+  This file covers TWO screens toggled by JS (#view-grid and #view-lookback) — the main Collection
+  calendar grid, and the Look back browsing view reached via the shuffle icon in the header. Build these
+  as two separate React Native screens/components; the toggle here is just a mockup convenience.
+
+  CSS custom properties like var(--surface-1), var(--surface-2), var(--text-secondary), var(--text-muted),
+  var(--border), var(--border-strong), and var(--border-accent) are host-theme tokens from the mockup tool
+  and are NOT defined in this file. Treat them as:
+    --surface-1 / --surface-2       -> light neutral background surfaces
+    --text-secondary / --text-muted -> muted gray body/label text
+    --border / --border-strong      -> light gray hairline borders (strong = slightly darker)
+    --border-accent                 -> the app's primary brand/accent color (not yet decided — see
+                                        CLAUDE.md open decisions), used for today's ring
+
+  Hardcoded hex colors in typeCycle (#BA7517, #1D9E75, #D4537E, #D85A30, #7F77DD) ARE the real intended
+  vibe-palette colors and should be preserved — see CLAUDE.md for the full color table and the holo
+  rarity logic (streak milestone + baseline random chance) implemented in the shimmer interval below.
+
+  IMPORTANT layout note: this mockup's grid is a flat 7-column repeat with 3 leading blank cells, NOT
+  positioned by real day-of-month/weekday. CLAUDE.md and the separate empty-first-run-state reference
+  file describe the actual intended behavior (real calendar positions, blank-vs-dashed day states) —
+  that logic still needs to be built; this file is for the card visual style and the look-back
+  interaction pattern only.
+
+  Icons use Tabler Icons font classes (e.g. "ti ti-calendar") as a stand-in — swap for @expo/vector-icons'
+  Tabler/Feather equivalents in the real app.
+-->
+
+<h2 class="sr-only">Mockup of the Everdot collection screen with a shuffle icon in the header that opens the look back browsing view, and a back button to return to the collection grid.</h2>
+
+<div style="max-width:320px;margin:0 auto;">
+  <div style="background:var(--surface-1);border-radius:40px;padding:10px;border:0.5px solid var(--border);">
+    <div style="background:var(--surface-2);border-radius:32px;padding:18px;">
+
+      <div id="view-grid">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <i class="ti ti-calendar" style="font-size:16px;color:var(--text-accent);" aria-hidden="true"></i>
+            <span style="font-weight:500;font-size:15px;">your collection</span>
+          </div>
+          <button id="shuffle-entry-btn" aria-label="Open look back" style="background:transparent;border:none;padding:2px;">
+            <i class="ti ti-refresh" style="font-size:16px;color:var(--text-muted);" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <i class="ti ti-arrow-left" style="font-size:14px;color:var(--text-muted);" aria-hidden="true"></i>
+          <span style="font-size:13px;font-weight:500;">july 2026</span>
+          <i class="ti ti-arrow-right" style="font-size:14px;color:var(--text-muted);" aria-hidden="true"></i>
+        </div>
+        <div id="card-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;"></div>
+      </div>
+
+      <div id="view-lookback" style="display:none;flex-direction:column;align-items:center;">
+        <div style="display:flex;align-items:center;width:100%;margin-bottom:14px;">
+          <button id="back-btn" style="background:transparent;border:none;padding:0;display:flex;align-items:center;gap:4px;">
+            <i class="ti ti-arrow-left" style="font-size:15px;color:var(--text-muted);" aria-hidden="true"></i>
+            <span style="font-size:12px;color:var(--text-secondary);">collection</span>
+          </button>
+        </div>
+        <p style="font-size:11px;color:var(--text-secondary);margin:0 0 10px;">tap the card to flip it</p>
+        <div style="position:relative;width:150px;height:210px;margin-bottom:14px;">
+          <div style="position:absolute;left:-9px;top:7px;width:150px;height:210px;border-radius:12px;background:var(--surface-1);border:0.5px solid var(--border);transform:rotate(-7deg);z-index:0;"></div>
+          <div style="position:absolute;left:8px;top:5px;width:150px;height:210px;border-radius:12px;background:var(--surface-1);border:0.5px solid var(--border);transform:rotate(6deg);z-index:0;"></div>
+          <div style="position:relative;width:150px;height:210px;perspective:900px;z-index:1;">
+            <div id="lb-flip-inner" style="width:100%;height:100%;position:relative;transition:transform 0.5s;transform-style:preserve-3d;cursor:pointer;">
+              <div id="lb-card-photo" style="position:absolute;inset:0;backface-visibility:hidden;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;"></div>
+              <div id="lb-card-details" style="position:absolute;inset:0;backface-visibility:hidden;transform:rotateY(180deg);border-radius:12px;background:var(--surface-1);border:0.5px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;"></div>
+            </div>
+          </div>
+        </div>
+        <p id="lb-progress" style="font-size:12px;color:var(--text-secondary);margin:0 0 14px;"></p>
+        <div style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;">
+          <button id="lb-prev" aria-label="Previous card" style="width:36px;height:36px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;">
+            <i class="ti ti-arrow-left" style="font-size:14px;" aria-hidden="true"></i>
+          </button>
+          <button id="lb-shuffle" style="font-size:12px;font-weight:500;padding:7px 14px;">shuffle</button>
+          <button id="lb-next" aria-label="Next card" style="width:36px;height:36px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;">
+            <i class="ti ti-arrow-right" style="font-size:14px;" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const leading = 3, totalDays = 31, trailing = 1, today = 30;
+const filled = new Set([1,3,4,6,8,9,12,14,15,17,19,21,22,24,26,27,29]);
+const typedDays = new Set([1,4,9,14,17,22,27,29]);
+const holoDays = new Set([9,22]);
+const typeCycle = [
+  {key:'amber', bg:'#BA7517', icon:'ti-sun', label:'golden'},
+  {key:'teal', bg:'#1D9E75', icon:'ti-moon', label:'calm'},
+  {key:'pink', bg:'#D4537E', icon:'ti-heart', label:'together'},
+  {key:'coral', bg:'#D85A30', icon:'ti-bolt', label:'adventure'},
+  {key:'purple', bg:'#7F77DD', icon:'ti-coffee', label:'cozy'}
+];
+const weekdayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
+const grid = document.getElementById('card-grid');
+let ti = 0;
+let gridHtml = '';
+for (let i = 0; i < leading; i++) gridHtml += '<div></div>';
+for (let d = 1; d <= totalDays; d++) {
+  if (d === today) {
+    gridHtml += '<div style="aspect-ratio:5/7;border-radius:8px;border:2px solid var(--border-accent);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;"><i class="ti ti-plus" style="font-size:13px;color:var(--text-accent);" aria-hidden="true"></i><span style="position:absolute;bottom:2px;right:3px;font-size:8px;color:var(--text-accent);">' + d + '</span></div>';
+  } else if (d > today) {
+    gridHtml += '<div style="aspect-ratio:5/7;border-radius:8px;background:var(--surface-1);"></div>';
+  } else if (filled.has(d)) {
+    const isHolo = holoDays.has(d);
+    if (typedDays.has(d)) {
+      const t = typeCycle[ti % typeCycle.length];
+      ti++;
+      gridHtml += '<div class="card-cell" data-holo="' + (isHolo ? 1 : 0) + '" style="aspect-ratio:5/7;border-radius:8px;background:' + t.bg + ';color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;' + (isHolo ? 'border:2px solid #fff;' : '') + '">'
+        + (isHolo ? '<i class="ti ti-star" style="position:absolute;top:2px;right:2px;font-size:9px;" aria-hidden="true"></i>' : '')
+        + '<i class="ti ' + t.icon + '" style="font-size:14px;" aria-hidden="true"></i>'
+        + '<span style="position:absolute;bottom:2px;right:3px;font-size:8px;opacity:0.85;">' + d + '</span>'
+        + '</div>';
+    } else {
+      gridHtml += '<div style="aspect-ratio:5/7;border-radius:8px;background:var(--surface-1);border:0.5px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;"><i class="ti ti-photo" style="font-size:13px;color:var(--text-muted);" aria-hidden="true"></i><span style="position:absolute;bottom:2px;right:3px;font-size:8px;color:var(--text-muted);opacity:0.75;">' + d + '</span></div>';
+    }
+  } else {
+    gridHtml += '<div style="aspect-ratio:5/7;border-radius:8px;background:var(--surface-1);border:1px dashed var(--border-strong);display:flex;align-items:center;justify-content:center;"><i class="ti ti-camera" style="font-size:12px;color:var(--text-muted);" aria-hidden="true"></i></div>';
+  }
+}
+for (let i = 0; i < trailing; i++) gridHtml += '<div></div>';
+grid.innerHTML = gridHtml;
+
+let hi = 0;
+setInterval(() => {
+  hi++;
+  document.querySelectorAll('[data-holo="1"]').forEach((el, idx) => {
+    el.style.background = typeCycle[(hi + idx) % typeCycle.length].bg;
+  });
+}, 600);
+
+const order = [29,27,26,24,22,21,19,17,15,14,12,9,8,6,4,3,1];
+function getCardData(day) {
+  let t = 0;
+  let type = null;
+  for (let d = 1; d <= day; d++) {
+    if (typedDays.has(d)) {
+      if (d === day) type = typeCycle[t % typeCycle.length];
+      t++;
+    }
+  }
+  return { day: day, type: type, holo: holoDays.has(day), weekday: weekdayNames[(3 + (day - 1)) % 7] };
+}
+
+const lbFlipInner = document.getElementById('lb-flip-inner');
+const lbCardPhoto = document.getElementById('lb-card-photo');
+const lbCardDetails = document.getElementById('lb-card-details');
+const lbProgress = document.getElementById('lb-progress');
+let lbIndex = 0;
+let lbFlipped = false;
+let lbShimmer = null;
+
+function renderLookback() {
+  clearInterval(lbShimmer);
+  lbFlipped = false;
+  lbFlipInner.style.transform = 'rotateY(0deg)';
+  const day = order[lbIndex];
+  const data = getCardData(day);
+  lbProgress.textContent = 'card ' + (lbIndex + 1) + ' of ' + order.length;
+  if (data.type) {
+    lbCardPhoto.style.background = data.type.bg;
+    lbCardPhoto.style.border = data.holo ? '2px solid #fff' : 'none';
+    lbCardPhoto.innerHTML = (data.holo ? '<i class="ti ti-star" style="position:absolute;top:8px;right:10px;font-size:14px;color:#fff;" aria-hidden="true"></i>' : '')
+      + '<i class="ti ' + data.type.icon + '" style="font-size:36px;color:#fff;" aria-hidden="true"></i>'
+      + '<span style="font-size:12px;font-weight:500;color:#fff;">' + data.type.label + '</span>';
+    lbCardDetails.innerHTML = '<span style="font-size:22px;font-weight:500;">' + day + '</span><span style="font-size:12px;color:var(--text-secondary);">' + data.weekday + ', july</span><span style="font-size:11px;color:var(--text-secondary);margin-top:6px;">' + data.type.label + (data.holo ? ' \u00b7 holo' : '') + '</span>';
+    if (data.holo) {
+      let hi2 = 0;
+      lbShimmer = setInterval(() => { hi2++; lbCardPhoto.style.background = typeCycle[hi2 % typeCycle.length].bg; }, 550);
+    }
+  } else {
+    lbCardPhoto.style.background = 'var(--surface-1)';
+    lbCardPhoto.style.border = '0.5px solid var(--border)';
+    lbCardPhoto.innerHTML = '<i class="ti ti-photo" style="font-size:32px;color:var(--text-muted);" aria-hidden="true"></i>';
+    lbCardDetails.innerHTML = '<span style="font-size:22px;font-weight:500;">' + day + '</span><span style="font-size:12px;color:var(--text-secondary);">' + data.weekday + ', july</span><span style="font-size:11px;color:var(--text-secondary);margin-top:6px;">no vibe tagged</span>';
+  }
+}
+
+lbFlipInner.addEventListener('click', () => {
+  lbFlipped = !lbFlipped;
+  lbFlipInner.style.transform = lbFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)';
+});
+document.getElementById('lb-prev').addEventListener('click', () => { lbIndex = lbIndex === 0 ? order.length - 1 : lbIndex - 1; renderLookback(); });
+document.getElementById('lb-next').addEventListener('click', () => { lbIndex = lbIndex === order.length - 1 ? 0 : lbIndex + 1; renderLookback(); });
+document.getElementById('lb-shuffle').addEventListener('click', () => {
+  let n = lbIndex;
+  while (n === lbIndex) n = Math.floor(Math.random() * order.length);
+  lbIndex = n;
+  renderLookback();
+});
+
+const viewGrid = document.getElementById('view-grid');
+const viewLookback = document.getElementById('view-lookback');
+document.getElementById('shuffle-entry-btn').addEventListener('click', () => {
+  viewGrid.style.display = 'none';
+  viewLookback.style.display = 'flex';
+  lbIndex = Math.floor(Math.random() * order.length);
+  renderLookback();
+});
+document.getElementById('back-btn').addEventListener('click', () => {
+  viewLookback.style.display = 'none';
+  viewGrid.style.display = 'block';
+});
+</script>

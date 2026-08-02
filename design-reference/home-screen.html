@@ -1,0 +1,130 @@
+<!--
+  Design reference exported from an in-chat mockup tool — not meant to be opened directly in a browser.
+  Read as code for layout, spacing, and interaction structure when building the React Native screen;
+  this is a reference, not literal markup to port.
+
+  CSS custom properties like var(--surface-1), var(--surface-2), var(--text-secondary), var(--text-muted),
+  var(--text-accent), and var(--border) are host-theme tokens from the mockup tool and are NOT defined in
+  this file. Treat them as:
+    --surface-1 / --surface-2  -> light neutral background surfaces
+    --text-secondary / --text-muted -> muted gray body/label text
+    --text-accent               -> the app's primary brand/accent color (not yet decided — see CLAUDE.md
+                                    open decisions) used here for the active nav tab
+    --border                    -> light gray hairline border
+
+  Hardcoded hex colors (#D4537E, #BA7517, #1D9E75, #D85A30, #7F77DD) ARE the real intended vibe-palette
+  colors and should be preserved — see CLAUDE.md for the full color table.
+
+  Icons use Tabler Icons font classes (e.g. "ti ti-home") as a stand-in — swap for @expo/vector-icons'
+  Tabler/Feather equivalents in the real app.
+-->
+
+<h2 class="sr-only">Mockup of the Everdot home screen with a look back prompt card that, when tapped, reveals a random past card inline with a shuffle-again option.</h2>
+
+<div style="max-width:320px;margin:0 auto;">
+  <div style="background:var(--surface-1);border-radius:40px;padding:10px;border:0.5px solid var(--border);">
+    <div style="background:var(--surface-2);border-radius:32px;padding:18px 18px 12px;">
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <p style="font-size:12px;color:var(--text-secondary);margin:0;">good afternoon</p>
+          <p style="font-size:16px;font-weight:500;margin:0;">everdot</p>
+        </div>
+        <i class="ti ti-settings" style="font-size:18px;color:var(--text-muted);" aria-hidden="true"></i>
+      </div>
+
+      <div style="background:var(--surface-1);border-radius:16px;padding:14px;display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+        <div style="width:52px;height:72px;border-radius:8px;border:2px dashed var(--border-strong);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <i class="ti ti-camera" style="font-size:20px;color:var(--text-muted);" aria-hidden="true"></i>
+        </div>
+        <div style="flex:1;">
+          <p style="font-size:14px;font-weight:500;margin:0 0 2px;">today's card is waiting</p>
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">day 12 of your streak</p>
+          <button style="font-size:13px;font-weight:500;padding:6px 14px;">open now</button>
+        </div>
+      </div>
+
+      <button id="lookback-prompt" style="width:100%;background:var(--surface-1);border:none;border-radius:12px;padding:12px;display:flex;align-items:center;gap:12px;margin-bottom:12px;text-align:left;">
+        <div style="width:38px;height:38px;border-radius:50%;background:#D4537E;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <i class="ti ti-refresh" style="font-size:17px;color:#fff;" aria-hidden="true"></i>
+        </div>
+        <div style="flex:1;">
+          <p style="font-size:13px;font-weight:500;margin:0;">look back</p>
+          <p style="font-size:11px;color:var(--text-secondary);margin:0;">rediscover a card from your collection</p>
+        </div>
+        <i class="ti ti-arrow-right" style="font-size:15px;color:var(--text-muted);" aria-hidden="true"></i>
+      </button>
+
+      <div id="lookback-panel" style="display:none;flex-direction:column;align-items:center;gap:8px;background:var(--surface-1);border-radius:12px;padding:14px;margin-bottom:12px;">
+        <div id="lb-mini-card" style="width:80px;aspect-ratio:5/7;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;"></div>
+        <p id="lb-mini-label" style="font-size:11px;color:var(--text-secondary);margin:0;"></p>
+        <button id="lb-shuffle-again" style="font-size:12px;padding:6px 12px;">shuffle again</button>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <div style="flex:1;background:var(--surface-1);border-radius:12px;padding:10px 6px;text-align:center;">
+          <p style="font-size:20px;font-weight:500;margin:0;">12</p>
+          <p style="font-size:11px;color:var(--text-secondary);margin:0;">day streak</p>
+        </div>
+        <div style="flex:1;background:var(--surface-1);border-radius:12px;padding:10px 6px;text-align:center;">
+          <p style="font-size:20px;font-weight:500;margin:0;">187</p>
+          <p style="font-size:11px;color:var(--text-secondary);margin:0;">cards</p>
+        </div>
+        <div style="flex:1;background:var(--surface-1);border-radius:12px;padding:10px 6px;text-align:center;">
+          <p style="font-size:20px;font-weight:500;margin:0;">9</p>
+          <p style="font-size:11px;color:var(--text-secondary);margin:0;">holo pulls</p>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-around;border-top:0.5px solid var(--border);padding-top:10px;">
+        <button style="background:transparent;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 10px;color:var(--text-accent);">
+          <i class="ti ti-home" style="font-size:18px;" aria-hidden="true"></i>
+          <span style="font-size:10px;">home</span>
+        </button>
+        <button style="background:transparent;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 10px;color:var(--text-muted);">
+          <i class="ti ti-calendar" style="font-size:18px;" aria-hidden="true"></i>
+          <span style="font-size:10px;">collection</span>
+        </button>
+        <button style="background:transparent;border:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 10px;color:var(--text-muted);">
+          <i class="ti ti-camera" style="font-size:18px;" aria-hidden="true"></i>
+          <span style="font-size:10px;">open</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const typeCycle = [
+  {bg:'#BA7517', icon:'ti-sun', label:'golden'},
+  {bg:'#1D9E75', icon:'ti-moon', label:'calm'},
+  {bg:'#D4537E', icon:'ti-heart', label:'together'},
+  {bg:'#D85A30', icon:'ti-bolt', label:'adventure'},
+  {bg:'#7F77DD', icon:'ti-coffee', label:'cozy'}
+];
+const sampleDays = [1,4,9,14,17,22,27,29];
+const miniCard = document.getElementById('lb-mini-card');
+const miniLabel = document.getElementById('lb-mini-label');
+const panel = document.getElementById('lookback-panel');
+
+function showRandomCard() {
+  const day = sampleDays[Math.floor(Math.random() * sampleDays.length)];
+  const idx = sampleDays.indexOf(day) % typeCycle.length;
+  const t = typeCycle[idx];
+  miniCard.style.background = t.bg;
+  miniCard.innerHTML = '<i class="ti ' + t.icon + '" style="font-size:24px;color:#fff;" aria-hidden="true"></i><span style="font-size:10px;font-weight:500;color:#fff;">' + t.label + '</span>';
+  miniLabel.textContent = 'july ' + day + ' \u00b7 ' + t.label;
+}
+
+document.getElementById('lookback-prompt').addEventListener('click', () => {
+  const isOpen = panel.style.display === 'flex';
+  if (isOpen) {
+    panel.style.display = 'none';
+  } else {
+    showRandomCard();
+    panel.style.display = 'flex';
+  }
+});
+document.getElementById('lb-shuffle-again').addEventListener('click', showRandomCard);
+</script>

@@ -1,0 +1,30 @@
+<!--
+  Design reference exported from an in-chat mockup tool. This one is plain SVG with no CSS variables or
+  external dependencies, so it should actually open fine in a browser or image viewer, unlike the other
+  HTML files in this folder.
+
+  These are three rough starting-point directions, not finished art (per the brief: the user plans to
+  design the real icon themselves). All colors are hardcoded hex, already final/real values:
+    #D85A30 (coral), #1D9E75 (teal), #7F77DD (purple), #BA7517 (amber) — matches the CLAUDE.md vibe palette.
+-->
+<svg width="100%" viewBox="0 0 380 150" role="img">
+<title>Three app icon concepts for Everdot</title>
+<desc>Three rounded-square app icon concepts: a cluster of overlapping dots, a card shape with a small accent dot, and a camera aperture rendered as a ring with a center dot.</desc>
+
+<rect x="50" y="20" width="80" height="80" rx="18" fill="#D85A30"/>
+<circle cx="82" cy="52" r="15" fill="#fff"/>
+<circle cx="100" cy="68" r="11" fill="#fff"/>
+<circle cx="68" cy="72" r="9" fill="#fff"/>
+
+<rect x="150" y="20" width="80" height="80" rx="18" fill="#1D9E75"/>
+<rect x="172" y="34" width="36" height="48" rx="6" fill="#fff"/>
+<circle cx="206" cy="40" r="6" fill="#BA7517"/>
+
+<rect x="250" y="20" width="80" height="80" rx="18" fill="#7F77DD"/>
+<circle cx="290" cy="60" r="18" fill="none" stroke="#fff" stroke-width="7"/>
+<circle cx="290" cy="60" r="5" fill="#fff"/>
+
+<text x="90" y="118" text-anchor="middle" font-size="12" fill="#666">dot cluster</text>
+<text x="190" y="118" text-anchor="middle" font-size="12" fill="#666">card corner</text>
+<text x="290" y="118" text-anchor="middle" font-size="12" fill="#666">aperture dot</text>
+</svg>
