@@ -4,9 +4,14 @@ export type TabParamList = {
   Open: undefined;
 };
 
+export type PermissionsParams = {
+  reminderHour: number;
+  reminderMinute: number;
+};
+
 export type RootStackParamList = {
   Onboarding: undefined;
-  Permissions: undefined;
+  Permissions: PermissionsParams | undefined;
   Main: undefined;
   EmptyFirstRun: undefined;
   LookBack: undefined;
