@@ -14,3 +14,14 @@ export function addDays(date: Date, amount: number): Date {
   result.setDate(result.getDate() + amount);
   return result;
 }
+
+const ABBREVIATED_MONTH_NAMES = [
+  'jan', 'feb', 'mar', 'apr', 'may', 'jun',
+  'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+];
+
+/** Formats a `YYYY-MM-DD` date key as e.g. "aug 3", for display on a card face. */
+export function formatCardDateLabel(dateKey: string): string {
+  const [, month, day] = dateKey.split('-');
+  return `${ABBREVIATED_MONTH_NAMES[Number(month) - 1]} ${Number(day)}`;
+}

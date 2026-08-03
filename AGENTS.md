@@ -11,6 +11,16 @@
   camera step, and notifications (`requestNotificationPermission` +
   `scheduleDailyReminder` from `src/utils/notifications.ts`) on the notifications
   step. Each step has a "not now" skip that still advances the flow.
+- Open card interaction (`src/screens/OpenCardScreen.tsx`) is built: after a photo
+  is captured/imported it's held as a pending card (saved to disk, not yet in the
+  `cards` table) while a face-down card flips via `react-native-reanimated` to
+  reveal it. Holo rarity is resolved once, at flip time, by `resolveIsHolo`
+  (`src/utils/holo.ts`) and only then is the row written with `insertCard`
+  (`vibe_type` + `is_holo` included from the start, no separate update step).
+  Vibe tagging is a row of 5 color chips + a "leave plain" skip, both of which
+  finalize and write the card immediately. The revealed card face is rendered by
+  the reusable `src/components/CardFace.tsx`, shared between the in-flow reveal
+  and the "already captured today" static view.
 
 ## Open decisions
 
@@ -28,3 +38,9 @@
   during the same flow as the camera permission. **This was an implicit decision**
   made by how the onboarding flow was built, not an explicit product decision —
   worth revisiting if upfront prompting hurts opt-in rates.
+- **Holo odds are placeholder numbers.** `HOLO_STREAK_MILESTONE_DAYS` (7) and
+  `HOLO_BASE_CHANCE` (0.08, an ~8% baseline pull on any non-milestone day) live
+  in `src/utils/holo.ts` as standalone constants specifically so they're easy to
+  retune once there's real data on how often players should pull a holo — no
+  design rationale went into the exact numbers beyond "matches the 7-day streak
+  milestone already used elsewhere" and "roughly one in twelve."

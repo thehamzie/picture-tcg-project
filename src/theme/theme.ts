@@ -1,3 +1,5 @@
+import type { Ionicons } from '@expo/vector-icons';
+
 // Vibe/type palette — see CLAUDE.md "Visual system"
 export const vibeColors = {
   golden: '#BA7517',
@@ -9,7 +11,7 @@ export const vibeColors = {
 
 export type VibeType = keyof typeof vibeColors;
 
-export const vibeIcons: Record<VibeType, string> = {
+export const vibeIcons: Record<VibeType, keyof typeof Ionicons.glyphMap> = {
   golden: 'sunny',
   calm: 'moon',
   together: 'heart',

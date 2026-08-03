@@ -1,14 +1,23 @@
 import { useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useSQLiteContext } from 'expo-sqlite';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
+import CardFace from '../components/CardFace';
 import { insertCard } from '../db/cardsRepository';
 import { useCards } from '../hooks/useCards';
-import { theme } from '../theme/theme';
+import { theme, type VibeType } from '../theme/theme';
 import { todayDateKey } from '../utils/date';
+import { HOLO_STREAK_MILESTONE_DAYS, resolveIsHolo } from '../utils/holo';
 import { saveCardPhoto } from '../utils/photoStorage';
+import { computeDayStreak } from '../utils/streak';
+
+const CARD_WIDTH = 180;
+const FLIP_DURATION_MS = 600;
+const VIBE_ORDER: VibeType[] = ['golden', 'calm', 'together', 'adventure', 'cozy'];
 
 export default function OpenCardScreen() {
   const db = useSQLiteContext();
@@ -18,15 +27,30 @@ export default function OpenCardScreen() {
   const [cameraRef, setCameraRef] = useState<CameraView | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
 
+  const [pendingPhotoUri, setPendingPhotoUri] = useState<string | null>(null);
+  const [flipped, setFlipped] = useState(false);
+  const [resolvedHolo, setResolvedHolo] = useState(false);
+  const [selectedVibe, setSelectedVibe] = useState<VibeType | null>(null);
+  const flipProgress = useSharedValue(0);
+
   const today = todayDateKey();
   const todaysCard = cards.find((card) => card.date === today);
+  const priorStreak = computeDayStreak(cards);
+  const openedStreak = priorStreak + 1;
+  const isMilestone = openedStreak % HOLO_STREAK_MILESTONE_DAYS === 0;
+
+  const backAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ perspective: 900 }, { rotateY: `${flipProgress.value * 180}deg` }],
+  }));
+  const frontAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ perspective: 900 }, { rotateY: `${180 - flipProgress.value * 180}deg` }],
+  }));
 
   async function handleCapturedPhoto(sourceUri: string) {
     setSaving(true);
     try {
       const savedUri = saveCardPhoto(sourceUri, today);
-      await insertCard(db, { date: today, photoUri: savedUri });
-      await refresh();
+      setPendingPhotoUri(savedUri);
       setCameraOpen(false);
     } catch (error) {
       Alert.alert('Something went wrong', 'Could not save today\'s card. Please try again.');
@@ -60,10 +84,43 @@ export default function OpenCardScreen() {
     await handleCapturedPhoto(result.assets[0].uri);
   }
 
+  function handleOpen() {
+    setResolvedHolo(resolveIsHolo(openedStreak));
+    setFlipped(true);
+    flipProgress.value = withTiming(1, { duration: FLIP_DURATION_MS });
+  }
+
+  async function finalizeCard(vibeType: VibeType | null) {
+    if (!pendingPhotoUri || saving) return;
+    setSaving(true);
+    setSelectedVibe(vibeType);
+    try {
+      await insertCard(db, { date: today, photoUri: pendingPhotoUri, vibeType, isHolo: resolvedHolo });
+      await refresh();
+      setPendingPhotoUri(null);
+      setFlipped(false);
+      setResolvedHolo(false);
+      setSelectedVibe(null);
+      flipProgress.value = 0;
+    } catch (error) {
+      Alert.alert('Something went wrong', 'Could not save your card. Please try again.');
+      console.error(error);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (todaysCard) {
     return (
       <View style={styles.container}>
-        <Image source={{ uri: todaysCard.photoUri }} style={styles.preview} />
+        <View style={styles.cardStage}>
+          <CardFace
+            photoUri={todaysCard.photoUri}
+            date={todaysCard.date}
+            vibeType={todaysCard.vibeType}
+            isHolo={todaysCard.isHolo}
+          />
+        </View>
         <Text style={styles.title}>Today's card is captured</Text>
         <Text style={styles.subtitle}>Come back tomorrow for the next one.</Text>
       </View>
@@ -102,6 +159,59 @@ export default function OpenCardScreen() {
     );
   }
 
+  if (pendingPhotoUri) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.streakHeader}>
+          <Ionicons name="calendar" size={15} color={theme.colors.accent} />
+          <Text style={styles.streakTitle}>today's card</Text>
+        </View>
+        <Text style={styles.streakSubtitle}>
+          {flipped && isMilestone
+            ? `day ${openedStreak} · streak milestone!`
+            : `day ${flipped ? openedStreak : priorStreak} of your streak`}
+        </Text>
+
+        <View style={styles.flipStage}>
+          <Animated.View style={[styles.cardLayer, backAnimatedStyle]}>
+            <View style={styles.cardBack}>
+              <Ionicons name="camera-outline" size={30} color={theme.colors.textSecondary} />
+            </View>
+          </Animated.View>
+          <Animated.View style={[styles.cardLayer, frontAnimatedStyle]}>
+            {flipped && (
+              <CardFace photoUri={pendingPhotoUri} date={today} vibeType={selectedVibe} isHolo={resolvedHolo} />
+            )}
+          </Animated.View>
+        </View>
+
+        {flipped && (
+          <View style={styles.chipRow}>
+            {VIBE_ORDER.map((vibe) => (
+              <Pressable
+                key={vibe}
+                style={[styles.chip, { backgroundColor: theme.colors.vibe[vibe] }]}
+                onPress={() => finalizeCard(vibe)}
+                disabled={saving}
+              >
+                <Ionicons name={theme.vibeIcons[vibe]} size={15} color={theme.colors.surface} />
+              </Pressable>
+            ))}
+            <Pressable style={styles.chipSkip} onPress={() => finalizeCard(null)} disabled={saving}>
+              <Ionicons name="close" size={15} color={theme.colors.textSecondary} />
+            </Pressable>
+          </View>
+        )}
+
+        {!flipped && (
+          <Pressable style={styles.primaryButton} onPress={handleOpen}>
+            <Text style={styles.primaryButtonText}>open card</Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Today's card is waiting</Text>
@@ -114,6 +224,8 @@ export default function OpenCardScreen() {
     </View>
   );
 }
+
+const CARD_HEIGHT = CARD_WIDTH / theme.cardShape.aspectRatio;
 
 const styles = StyleSheet.create({
   container: {
@@ -133,11 +245,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.textSecondary,
   },
-  preview: {
-    width: 200,
-    aspectRatio: theme.cardShape.aspectRatio,
-    borderRadius: theme.cardShape.radiusFull,
-    backgroundColor: theme.colors.cardMuted,
+  cardStage: {
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
   },
   primaryButton: {
     backgroundColor: theme.colors.accent,
@@ -183,5 +293,63 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderWidth: 4,
     borderColor: theme.colors.accent,
+  },
+  streakHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  streakTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.colors.textPrimary,
+  },
+  streakSubtitle: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  flipStage: {
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+  },
+  cardLayer: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    backfaceVisibility: 'hidden',
+  },
+  cardBack: {
+    width: '100%',
+    height: '100%',
+    borderRadius: theme.cardShape.radiusFull,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 0.5,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  },
+  chip: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipSkip: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: theme.colors.border,
   },
 });
