@@ -100,7 +100,7 @@ export default function CardFace({
       ]}
     >
       <View style={styles.photoFrame}>
-        <View style={[styles.photo, placeholderHatch(`${withAlpha(skin.cardstock.inkRule, 0.11)}`)]}>
+        <View style={[styles.photo, placeholderHatch(withAlpha(skin.cardstock.inkRule, 0.11), u)]}>
           <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
         </View>
       </View>

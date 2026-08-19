@@ -342,6 +342,50 @@ app.
     from reading the expo-camera types and the capture path, not from a stack trace, so if
     either persists the next step is the actual native log.
 
+- **Share crash (real cause), more skins/templates, batch photo save, card edit/delete.**
+  - **The share crash was memory, not blend modes.** The previous pass's blend-layer fix was
+    real but wasn't the cause — the actual problem was that the capture target was laid out at
+    `EXPORT_WIDTH` **points** (1080) and merely transform-scaled down for the preview. On a 3×
+    device that is a 3240px-wide backing store — roughly 50-75MB for a 4:5 or 9:16 frame — and
+    snapshotting it took the process down. Worst on the single-card path, which is where the
+    user hit it, because that's the one that also renders the foil. Now the preview and the
+    capture target are two separate renders of the same width-parameterised `ShareCanvas`: the
+    preview at ~230pt, and the capture mounted **off-screen only while a snapshot is in
+    flight**, laid out at `CAPTURE_LAYOUT_WIDTH = min(540, 1080 / PixelRatio.get())` so
+    `layout × pixelRatio` still lands on 1080px. Same output, about a ninth of the memory, and
+    no ancestor transform for the snapshot to disagree about. The blend-mode/`CaptureContext`
+    work from the previous pass is kept — it's still correct, and it makes exports deterministic
+    rather than dependent on snapshot-time blend support.
+  - **Second contributor: unbounded gradient stop counts.** `foilGrain` emitted a fixed 800px
+    run at a 5px period — **320 colour stops** in one native gradient — and, being quoted in
+    absolute pixels, it also rendered as an invisible hairline on a large canvas.
+    `repeatingStripes` now takes a bounded `repeats` count (default 64, hard cap 96) and every
+    caller scales `stripe`/`period` by the element instead, so the texture looks the same at
+    any size and the shader cost is constant. `CardFace`, `CardThumb` and `FaceDownCard` pass
+    their own `u`.
+  - **Four new skins** — `midnightInk`, `forestPress`, `sakuraPress`, `monoPress` (8 total).
+    None are from the design source; they're original token sets following Warm Binder's
+    confirmed structure, and `skins.ts` says so explicitly so a later reader doesn't mistake
+    them for extracted values. The status bar no longer hardcodes a skin id — new
+    `isLightSurface()` derives light/dark from the shell colour, so a new light skin gets it
+    right without editing `App.tsx`.
+  - **Four new share templates** (10 total). Cards: `minimal` ("QUIET" — square photo, wide
+    margins, one mono line, built for everyday posting) and `poster` (editorial; photo above,
+    large title below). Sets: `contact` ("SHEET" — seven square frames with day labels, the
+    plainest of the set templates) and `stack` (cards cascading with slight counter-rotation,
+    which suits 9:16 best).
+  - **Save a Set's photos individually.** On a Set's Share screen, "Save each photo
+    separately" writes every original to the library untouched — no composition, no downscale.
+    Reports partial success honestly rather than claiming all N saved.
+  - **Card edit + delete** — the most significant functional gap left. `updateCardDetails` and
+    `deleteCard` in `cardsRepository`, `deleteCardPhoto` in `photoStorage`, wired to a pencil
+    icon in Card Detail's header that opens an inline edit panel (title + vibe, reusing the
+    reveal screen's picker) plus a destructive-confirm delete. Deliberately narrow: only the
+    title and vibe are editable. The photo, date, holo roll and card number are what make the
+    card a record of that day, so they stay immutable.
+  - Deleted `ScreenPlaceholder.tsx` (dead). `npx tsc --noEmit` clean; iOS and Android bundles
+    both build. Still no simulator/device in this environment.
+
 ## Open decisions
 
 - **"Look back" (random past-card recall) and a dedicated empty-first-run screen were

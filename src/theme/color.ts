@@ -18,6 +18,16 @@ export function withAlpha(color: string, alpha: number): string {
 }
 
 /**
+ * Whether a skin paints its shell light. Drives anything that has to invert with the shell
+ * rather than with a token — currently the OS status bar, which no token can express.
+ * Derived from the palette instead of a hardcoded skin-id list so a new skin gets it right
+ * without touching this file.
+ */
+export function isLightSurface(color: string): boolean {
+  return readableInk(color) === '#17130F';
+}
+
+/**
  * Dark ink or white, whichever reads on `color`. The mockup only ever renders the "golden"
  * vibe chip, where it uses dark ink (#17130F); this threshold reproduces that for golden and
  * falls to white for the four darker vibes, which dark ink wouldn't clear on.

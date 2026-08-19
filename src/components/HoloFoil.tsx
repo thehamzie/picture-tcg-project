@@ -92,7 +92,9 @@ export default function HoloFoil({ foilRamp, fx, fy, borderRadius = 0 }: HoloFoi
           StyleSheet.absoluteFill,
           capturing ? null : styles.blend,
           { opacity: foilRamp.grainOpacity * (capturing ? CAPTURE_GRAIN_OPACITY_FACTOR : 1) },
-          foilGrain(foilRamp.grainAngleDeg),
+          // The grain scales with the card. Quoted in absolute pixels it would be a visible
+          // texture on a 200pt card and an invisible hairline on an exported one.
+          foilGrain(foilRamp.grainAngleDeg, Math.max(0.6, size.width / 250)),
         ]}
       />
     </Animated.View>

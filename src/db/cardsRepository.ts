@@ -24,6 +24,31 @@ export async function getEarliestCardDate(db: SQLiteDatabase): Promise<string | 
   return row?.date ?? null;
 }
 
+/**
+ * Edits the two fields a user can get wrong at capture time. Deliberately narrow: the photo,
+ * date, holo roll and card number are all part of what makes a card a record of that day, so
+ * they stay immutable — only the title and vibe tag can be corrected afterwards.
+ */
+export async function updateCardDetails(
+  db: SQLiteDatabase,
+  id: number,
+  input: { title: string | null; vibeType: VibeType | null }
+): Promise<void> {
+  await db.runAsync('UPDATE cards SET title = ?, vibe_type = ? WHERE id = ?', [
+    input.title,
+    input.vibeType,
+    id,
+  ]);
+}
+
+/**
+ * Removes a card. The photo file is deleted separately by the caller — the row and the file
+ * are cleaned up together so a failure can't leave the DB pointing at a missing file.
+ */
+export async function deleteCard(db: SQLiteDatabase, id: number): Promise<void> {
+  await db.runAsync('DELETE FROM cards WHERE id = ?', [id]);
+}
+
 export async function insertCard(
   db: SQLiteDatabase,
   input: {

@@ -58,7 +58,7 @@ export default function CardThumb({
 
   return (
     <View style={[styles.cell, width != null ? { width } : null]}>
-      <View style={[styles.photo, placeholderHatch(withAlpha(skin.cardstock.inkRule, 0.12))]}>
+      <View style={[styles.photo, placeholderHatch(withAlpha(skin.cardstock.inkRule, 0.12), u)]}>
         {photoUri && <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />}
       </View>
 

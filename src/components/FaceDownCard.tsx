@@ -68,7 +68,7 @@ export default function FaceDownCard({
 
   return (
     <Animated.View style={[styles.card, { width, height: width / CARD_ASPECT }, floatStyle]}>
-      <View style={[StyleSheet.absoluteFill, cardBackHatch(skin.shell.faceDownHatch)]} />
+      <View style={[StyleSheet.absoluteFill, cardBackHatch(skin.shell.faceDownHatch, u)]} />
       <View style={styles.ring}>
         <Text style={styles.monogram}>DP</Text>
       </View>

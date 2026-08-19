@@ -32,7 +32,17 @@ export type ShareSubject =
   | { kind: 'card'; card: Card; setNumber: number | null }
   | { kind: 'set'; set: SetSummary };
 
-export type TemplateId = 'classic' | 'bleed' | 'pageCard' | 'grid' | 'fan' | 'filmstrip';
+export type TemplateId =
+  | 'classic'
+  | 'bleed'
+  | 'pageCard'
+  | 'poster'
+  | 'minimal'
+  | 'grid'
+  | 'fan'
+  | 'filmstrip'
+  | 'stack'
+  | 'contact';
 export type AspectId = '1:1' | '4:5' | '9:16';
 
 export type ShareOverlays = {
@@ -59,11 +69,15 @@ export const TEMPLATES: {
   subject: 'card' | 'set';
 }[] = [
   { id: 'classic', label: 'CARD', hint: 'The card, centred', subject: 'card' },
+  { id: 'minimal', label: 'QUIET', hint: 'Photo, wide margins, one line', subject: 'card' },
   { id: 'bleed', label: 'BLEED', hint: 'Photo edge to edge', subject: 'card' },
+  { id: 'poster', label: 'POSTER', hint: 'Photo above, title below', subject: 'card' },
   { id: 'pageCard', label: 'ON PAGE', hint: 'Card laid on the binder leaf', subject: 'card' },
   { id: 'grid', label: 'PAGE', hint: 'The whole week as one leaf', subject: 'set' },
-  { id: 'fan', label: 'FAN', hint: 'Seven cards fanned open', subject: 'set' },
+  { id: 'contact', label: 'SHEET', hint: 'Contact sheet, seven frames', subject: 'set' },
   { id: 'filmstrip', label: 'STRIP', hint: 'The week as a filmstrip', subject: 'set' },
+  { id: 'stack', label: 'STACK', hint: 'Cards cascading down', subject: 'set' },
+  { id: 'fan', label: 'FAN', hint: 'Seven cards fanned open', subject: 'set' },
 ];
 
 /** The canvas width every export is rasterized at. 1080 is Instagram's native short edge. */
@@ -87,34 +101,27 @@ export default function ShareCanvas({ subject, template, aspect, width, overlays
 
   if (subject.kind === 'card') {
     const { card, setNumber } = subject;
-    if (template === 'bleed') {
-      return <BleedTemplate {...{ frame, card, setNumber, overlays, styles, skin, u }} />;
-    }
-    if (template === 'pageCard') {
-      return <PageCardTemplate {...{ frame, card, setNumber, overlays, styles, skin, u, aspect }} />;
-    }
-    return <ClassicTemplate {...{ frame, card, setNumber, overlays, styles, skin, u }} />;
+    const props = { frame, card, setNumber, overlays, styles, skin, u };
+    if (template === 'bleed') return <BleedTemplate {...props} />;
+    if (template === 'poster') return <PosterTemplate {...props} />;
+    if (template === 'minimal') return <MinimalTemplate {...props} />;
+    if (template === 'pageCard') return <PageCardTemplate {...props} aspect={aspect} />;
+    return <ClassicTemplate {...props} />;
   }
 
   const { set } = subject;
-  if (template === 'fan') return <FanTemplate {...{ frame, set, overlays, styles, u, aspect }} />;
-  if (template === 'filmstrip') return <FilmstripTemplate {...{ frame, set, overlays, styles, skin, u }} />;
-  return <GridTemplate {...{ frame, set, overlays, styles, u, aspect }} />;
+  const props = { frame, set, overlays, styles, skin, u };
+  if (template === 'fan') return <FanTemplate {...props} aspect={aspect} />;
+  if (template === 'filmstrip') return <FilmstripTemplate {...props} />;
+  if (template === 'stack') return <StackTemplate {...props} />;
+  if (template === 'contact') return <ContactSheetTemplate {...props} />;
+  return <GridTemplate {...props} aspect={aspect} />;
 }
 
 type Frame = { width: number; height: number };
 type Styles = ReturnType<typeof createStyles>;
 
-// ---------------------------------------------------------------- single-card templates
-
-function ClassicTemplate({
-  frame,
-  card,
-  setNumber,
-  overlays,
-  styles,
-  u,
-}: {
+type CardTemplateProps = {
   frame: Frame;
   card: Card;
   setNumber: number | null;
@@ -122,7 +129,20 @@ function ClassicTemplate({
   styles: Styles;
   skin: SkinTokens;
   u: number;
-}) {
+};
+
+type SetTemplateProps = {
+  frame: Frame;
+  set: SetSummary;
+  overlays: ShareOverlays;
+  styles: Styles;
+  skin: SkinTokens;
+  u: number;
+};
+
+// ---------------------------------------------------------------- single-card templates
+
+function ClassicTemplate({ frame, card, setNumber, overlays, styles, u }: CardTemplateProps) {
   const pad = frame.width * 0.09;
   const captionRoom = 130 * u;
   // Fit by whichever axis binds first, so the card never overflows a 1:1 or overwhelms a 9:16.
@@ -155,23 +175,7 @@ function ClassicTemplate({
   );
 }
 
-function BleedTemplate({
-  frame,
-  card,
-  setNumber,
-  overlays,
-  styles,
-  skin,
-  u,
-}: {
-  frame: Frame;
-  card: Card;
-  setNumber: number | null;
-  overlays: ShareOverlays;
-  styles: Styles;
-  skin: SkinTokens;
-  u: number;
-}) {
+function BleedTemplate({ frame, card, setNumber, overlays, styles, skin, u }: CardTemplateProps) {
   const displayTitle = card.title?.trim() ? card.title.trim() : formatCardDateLabel(card.date);
   const showCaption = overlays.date || overlays.title || overlays.vibe || overlays.setNumber;
 
@@ -216,6 +220,83 @@ function BleedTemplate({
   );
 }
 
+/**
+ * Editorial: photo on top, type below on the shell. The one template where the title is the
+ * loudest thing on the canvas — good when the picture wants a caption rather than a frame.
+ */
+function PosterTemplate({
+  frame,
+  card,
+  setNumber,
+  overlays,
+  styles,
+  skin,
+  u,
+}: CardTemplateProps) {
+  const pad = frame.width * 0.075;
+  const displayTitle = card.title?.trim() ? card.title.trim() : formatCardDateLabel(card.date);
+
+  return (
+    <View style={[styles.shellCanvas, frame, { padding: pad }]}>
+      <View style={styles.posterPhoto}>
+        <Image source={{ uri: card.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        {card.isHolo && overlays.holoSheen && <HoloFoil foilRamp={skin.foilRamp} borderRadius={8 * u} />}
+      </View>
+      <View style={styles.posterCopy}>
+        {overlays.title && (
+          <Text style={styles.posterTitle} numberOfLines={3}>
+            {displayTitle}
+          </Text>
+        )}
+        <View style={styles.posterRule} />
+        <View style={styles.posterMetaRow}>
+          {overlays.date && <Text style={styles.posterMeta}>{formatMonoDateWithDay(card.date)}</Text>}
+          {overlays.setNumber && setNumber != null && (
+            <Text style={styles.posterMeta}>SET {setNumber} · NO. {card.id}</Text>
+          )}
+        </View>
+        {overlays.vibe && card.vibeType && (
+          <View style={[styles.posterVibe, { backgroundColor: theme.colors.vibe[card.vibeType] }]} />
+        )}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * The restrained one: a square photo in generous margins with a single mono line. Built for
+ * everyday posting, where the trading-card framing would be too much.
+ */
+function MinimalTemplate({ frame, card, setNumber, overlays, styles, skin, u }: CardTemplateProps) {
+  const pad = frame.width * 0.11;
+  const photoSize = frame.width - pad * 2;
+
+  return (
+    <View style={[styles.shellCanvas, frame, { padding: pad }]}>
+      <View style={styles.centreColumn}>
+        <View style={[styles.minimalPhoto, { width: photoSize, height: photoSize }]}>
+          <Image source={{ uri: card.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          {card.isHolo && overlays.holoSheen && <HoloFoil foilRamp={skin.foilRamp} />}
+        </View>
+        {overlays.title && (
+          <Text style={styles.minimalTitle} numberOfLines={2}>
+            {card.title?.trim() ? card.title.trim() : formatCardDateLabel(card.date)}
+          </Text>
+        )}
+        <View style={styles.minimalMetaRow}>
+          {overlays.vibe && card.vibeType && (
+            <View style={[styles.minimalDot, { backgroundColor: theme.colors.vibe[card.vibeType] }]} />
+          )}
+          {overlays.date && <Text style={styles.footnoteTight}>{formatMonoDate(card.date)}</Text>}
+          {overlays.setNumber && setNumber != null && (
+            <Text style={styles.footnoteTight}>SET {setNumber}</Text>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function PageCardTemplate({
   frame,
   card,
@@ -224,16 +305,7 @@ function PageCardTemplate({
   styles,
   u,
   aspect,
-}: {
-  frame: Frame;
-  card: Card;
-  setNumber: number | null;
-  overlays: ShareOverlays;
-  styles: Styles;
-  skin: SkinTokens;
-  u: number;
-  aspect: AspectId;
-}) {
+}: CardTemplateProps & { aspect: AspectId }) {
   const pad = frame.width * 0.06;
   const pageHeight = frame.height - pad * 2;
   const cardWidth = Math.min(frame.width * 0.62, (pageHeight - 200 * u) * CARD_ASPECT);
@@ -277,14 +349,7 @@ function GridTemplate({
   styles,
   u,
   aspect,
-}: {
-  frame: Frame;
-  set: SetSummary;
-  overlays: ShareOverlays;
-  styles: Styles;
-  u: number;
-  aspect: AspectId;
-}) {
+}: SetTemplateProps & { aspect: AspectId }) {
   const pad = frame.width * 0.06;
   const pagePadding = u * 3.2;
   const innerWidth = frame.width - pad * 2 - 28 * pagePadding - 14 * pagePadding;
@@ -334,14 +399,7 @@ function FanTemplate({
   styles,
   u,
   aspect,
-}: {
-  frame: Frame;
-  set: SetSummary;
-  overlays: ShareOverlays;
-  styles: Styles;
-  u: number;
-  aspect: AspectId;
-}) {
+}: SetTemplateProps & { aspect: AspectId }) {
   const pad = frame.width * 0.06;
   const cardWidth = frame.width * 0.34;
   const cardHeight = cardWidth * 1.37;
@@ -395,21 +453,7 @@ function FanTemplate({
   );
 }
 
-function FilmstripTemplate({
-  frame,
-  set,
-  overlays,
-  styles,
-  skin,
-  u,
-}: {
-  frame: Frame;
-  set: SetSummary;
-  overlays: ShareOverlays;
-  styles: Styles;
-  skin: SkinTokens;
-  u: number;
-}) {
+function FilmstripTemplate({ frame, set, overlays, styles, skin, u }: SetTemplateProps) {
   const pad = frame.width * 0.075;
   const gap = 10 * u;
   const headerRoom = 150 * u;
@@ -434,7 +478,7 @@ function FilmstripTemplate({
                   { backgroundColor: vibeColor ?? withAlpha(skin.shell.textPrimary, 0.14) },
                 ]}
               />
-              <View style={[styles.bandPhoto, placeholderHatch(withAlpha(skin.shell.textPrimary, 0.08))]}>
+              <View style={[styles.bandPhoto, placeholderHatch(withAlpha(skin.shell.textPrimary, 0.08), u * 3)]}>
                 {card && (
                   <Image source={{ uri: card.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
                 )}
@@ -445,6 +489,106 @@ function FilmstripTemplate({
                   <Text style={styles.bandLabelText}>{formatGridDayLabel(dateKey)}</Text>
                 </View>
               )}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Cards cascading down the canvas, each overlapping the one above with a little counter-rota-
+ * tion. Reads as a handful of cards dealt onto a table — the most "collection" of the set
+ * templates, and the one that suits a 9:16 story best.
+ */
+function StackTemplate({ frame, set, overlays, styles, u }: SetTemplateProps) {
+  const pad = frame.width * 0.08;
+  const cardWidth = frame.width * 0.52;
+  const cardHeight = cardWidth * 1.37;
+  const headerRoom = 170 * u;
+  const available = frame.height - pad * 2 - headerRoom - cardHeight;
+  // Overlap so the whole run always fits, however tall the frame is.
+  const step = Math.max(24 * u, available / Math.max(1, set.cards.length - 1));
+  const tilts = [-4, 3, -2.5, 4, -3.5, 2, -1.5];
+
+  return (
+    <View style={[styles.shellCanvas, frame, { padding: pad }]}>
+      <View style={styles.stackHeader}>
+        <Text style={styles.setNumberLight}>Set {set.setNumber}</Text>
+        <Text style={styles.eyebrow}>
+          {formatSetRange(set.startDate, set.dateKeys[6])} · {set.cardCount}/7
+        </Text>
+      </View>
+      <View style={styles.stackStage}>
+        {set.cards.map((card, index) => (
+          <View
+            key={set.dateKeys[index]}
+            style={{
+              position: 'absolute',
+              top: index * step,
+              left: (frame.width - pad * 2 - cardWidth) / 2,
+              width: cardWidth,
+              zIndex: index,
+              transform: [{ rotate: `${tilts[index % tilts.length]}deg` }],
+            }}
+          >
+            <CardThumb
+              photoUri={card?.photoUri ?? null}
+              date={set.dateKeys[index]}
+              vibeType={overlays.vibe ? (card?.vibeType ?? null) : null}
+              isHolo={(card?.isHolo ?? false) && overlays.holoSheen}
+              variant="fan"
+              width={cardWidth}
+            />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * A proper contact sheet: seven square frames on the shell with mono day labels underneath.
+ * The plainest, most everyday of the set templates — no binder, no card stock.
+ */
+function ContactSheetTemplate({ frame, set, overlays, styles, skin, u }: SetTemplateProps) {
+  const pad = frame.width * 0.08;
+  const columns = 3;
+  const gap = 14 * u;
+  const cellWidth = (frame.width - pad * 2 - gap * (columns - 1)) / columns;
+
+  return (
+    <View style={[styles.shellCanvas, frame, { padding: pad }]}>
+      <View style={styles.sheetHeader}>
+        <Text style={styles.setNumberLight}>Set {set.setNumber}</Text>
+        <Text style={styles.eyebrow}>
+          {formatSetRange(set.startDate, set.dateKeys[6])} · {set.cardCount}/7
+        </Text>
+      </View>
+      <View style={[styles.sheetGrid, { gap }]}>
+        {set.dateKeys.map((dateKey, index) => {
+          const card = set.cards[index];
+          return (
+            <View key={dateKey} style={{ width: cellWidth }}>
+              <View
+                style={[
+                  styles.sheetFrame,
+                  { height: cellWidth },
+                  placeholderHatch(withAlpha(skin.shell.textPrimary, 0.08), u * 3),
+                ]}
+              >
+                {card && (
+                  <Image source={{ uri: card.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                )}
+                {card?.isHolo && overlays.holoSheen && <HoloFoil foilRamp={skin.foilRamp} />}
+              </View>
+              <View style={styles.sheetCaption}>
+                {overlays.date && <Text style={styles.sheetDay}>{formatGridDayLabel(dateKey)}</Text>}
+                {overlays.vibe && card?.vibeType && (
+                  <View style={[styles.sheetVibe, { backgroundColor: theme.colors.vibe[card.vibeType] }]} />
+                )}
+              </View>
             </View>
           );
         })}
@@ -604,6 +748,111 @@ function createStyles(skin: SkinTokens, u: number) {
     bandLabelText: {
       ...monoRaw(18 * u, 0.12),
       color: '#FFFFFF',
+    },
+
+    // poster
+    posterPhoto: {
+      flex: 1,
+      borderRadius: 8 * u,
+      overflow: 'hidden',
+      backgroundColor: skin.cardstock.photoPlaceholder,
+    },
+    posterCopy: {
+      paddingTop: 34 * u,
+    },
+    posterTitle: {
+      ...displayRaw(62 * u, 1.05),
+      color: skin.shell.textPrimary,
+    },
+    posterRule: {
+      height: 3 * u,
+      backgroundColor: skin.shell.accent,
+      marginTop: 26 * u,
+      width: 90 * u,
+    },
+    posterMetaRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 22 * u,
+    },
+    posterMeta: {
+      ...monoRaw(21 * u, 0.14),
+      color: withAlpha(skin.shell.textPrimary, 0.5),
+    },
+    posterVibe: {
+      height: 6 * u,
+      borderRadius: 3 * u,
+      marginTop: 22 * u,
+    },
+
+    // minimal
+    minimalPhoto: {
+      overflow: 'hidden',
+      backgroundColor: skin.cardstock.photoPlaceholder,
+    },
+    minimalTitle: {
+      ...displayRaw(30 * u, 1.2),
+      color: skin.shell.textPrimary,
+      marginTop: 44 * u,
+      textAlign: 'center',
+    },
+    minimalMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14 * u,
+      marginTop: 20 * u,
+    },
+    minimalDot: {
+      width: 12 * u,
+      height: 12 * u,
+      borderRadius: 6 * u,
+    },
+    footnoteTight: {
+      ...monoRaw(20 * u, 0.16),
+      color: withAlpha(skin.shell.textPrimary, 0.45),
+    },
+
+    // stack
+    stackHeader: {
+      gap: 12 * u,
+      marginBottom: 26 * u,
+    },
+    stackStage: {
+      flex: 1,
+    },
+
+    // contact sheet
+    sheetHeader: {
+      gap: 12 * u,
+      marginBottom: 28 * u,
+    },
+    sheetGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignContent: 'flex-start',
+    },
+    sheetFrame: {
+      width: '100%',
+      overflow: 'hidden',
+      borderRadius: 6 * u,
+      backgroundColor: skin.cardstock.photoPlaceholder,
+      borderWidth: Math.max(1, 1.5 * u),
+      borderColor: withAlpha(skin.shell.textPrimary, 0.12),
+    },
+    sheetCaption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 10 * u,
+    },
+    sheetDay: {
+      ...monoRaw(17 * u, 0.1),
+      color: withAlpha(skin.shell.textPrimary, 0.5),
+    },
+    sheetVibe: {
+      width: 26 * u,
+      height: 5 * u,
+      borderRadius: 3 * u,
     },
   });
 }

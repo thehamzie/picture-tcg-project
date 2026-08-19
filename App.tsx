@@ -8,6 +8,7 @@ import { SQLiteProvider } from 'expo-sqlite';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { isLightSurface } from './src/theme/color';
 import { migrateDbIfNeeded } from './src/db/schema';
 import RootNavigator from './src/navigation/RootNavigator';
 import { SkinProvider, useSkin } from './src/theme/SkinContext';
@@ -77,7 +78,7 @@ function ThemedNavigation() {
       <NavigationContainer theme={navigationTheme}>
         <RootNavigator />
       </NavigationContainer>
-      <StatusBar style={skin.id === 'scrapbookSun' ? 'dark' : 'light'} />
+      <StatusBar style={isLightSurface(skin.shell.background) ? 'dark' : 'light'} />
     </View>
   );
 }

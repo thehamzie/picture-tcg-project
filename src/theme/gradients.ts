@@ -23,25 +23,33 @@ function backgroundImage(css: string): ViewStyle {
  * Unrolls a CSS `repeating-linear-gradient(<angle>, <color> 0 <stripe>px, transparent
  * <stripe>px <period>px)` into the explicit stop list RN needs.
  *
- * `length` is how far along the gradient line to keep repeating — it only needs to exceed the
- * element's diagonal; stops past the edge are simply unused.
+ * `repeats` is a fixed count rather than a pixel run length, and every caller scales
+ * `stripe`/`period` by the element instead. Two reasons:
+ *   * Cost. Each repeat is two colour stops, and the count is what a native gradient shader
+ *     pays for. A fixed pixel run over a small period used to emit 320 stops, which is a lot
+ *     to hand a shader — and far more to rasterize into a snapshot.
+ *   * Correctness. A pattern quoted in absolute pixels is invisibly fine on a large canvas.
+ *     Scaling the period keeps the texture looking the same at any render size.
  */
+const DEFAULT_REPEATS = 64;
+const MAX_REPEATS = 96;
+
 export function repeatingStripes({
   angleDeg,
   color,
   stripe,
   period,
-  length = 640,
+  repeats = DEFAULT_REPEATS,
 }: {
   angleDeg: number;
   color: string;
   stripe: number;
   period: number;
-  length?: number;
+  repeats?: number;
 }): ViewStyle {
-  const repeats = Math.ceil(length / period);
+  const count = Math.min(MAX_REPEATS, Math.max(1, Math.round(repeats)));
   const stops: string[] = [];
-  for (let i = 0; i < repeats; i++) {
+  for (let i = 0; i < count; i++) {
     const start = i * period;
     stops.push(`${color} ${start}px ${start + stripe}px`);
     stops.push(`transparent ${start + stripe}px ${start + period}px`);
@@ -63,8 +71,8 @@ export function placeholderHatch(color = 'rgba(23,19,15,0.12)', scale = 1): View
  * The 45° hatch on the face-down card back:
  * `repeating-linear-gradient(45deg, rgba(224,163,46,.13) 0 7px, transparent 7px 15px)`.
  */
-export function cardBackHatch(color: string): ViewStyle {
-  return repeatingStripes({ angleDeg: 45, color, stripe: 7, period: 15 });
+export function cardBackHatch(color: string, scale = 1): ViewStyle {
+  return repeatingStripes({ angleDeg: 45, color, stripe: 7 * scale, period: 15 * scale });
 }
 
 /**
@@ -72,8 +80,14 @@ export function cardBackHatch(color: string): ViewStyle {
  * `repeating-linear-gradient(74deg, rgba(255,255,255,.7) 0 1px, transparent 1px 5px)` at
  * `opacity: .22`. White and universal, not skin-tinted.
  */
-export function foilGrain(angleDeg: number): ViewStyle {
-  return repeatingStripes({ angleDeg, color: 'rgba(255,255,255,0.7)', stripe: 1, period: 5, length: 800 });
+export function foilGrain(angleDeg: number, scale = 1): ViewStyle {
+  return repeatingStripes({
+    angleDeg,
+    color: 'rgba(255,255,255,0.7)',
+    stripe: 1 * scale,
+    period: 5 * scale,
+    repeats: 96, // ~480 * scale px of coverage, which clears a card's diagonal at any size
+  });
 }
 
 /**

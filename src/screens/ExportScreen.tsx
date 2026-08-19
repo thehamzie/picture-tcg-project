@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, PixelRatio, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { RouteProp } from '@react-navigation/native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -46,6 +46,19 @@ import { buildSets, getSetNumberForDate } from '../utils/sets';
 
 type ExportNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Export'>;
 type ExportRouteProp = RouteProp<RootStackParamList, 'Export'>;
+
+/**
+ * Layout width for the off-screen capture, picked so `width × pixelRatio` lands on the 1080px
+ * output we want. Capped so a 1× device doesn't try to lay out a 1080pt view — the very thing
+ * that made snapshots run out of memory.
+ */
+const CAPTURE_LAYOUT_WIDTH = Math.min(540, Math.round(EXPORT_WIDTH / PixelRatio.get()));
+
+/** Time for the off-screen canvas to lay out and its photos to decode before snapshotting. */
+const CAPTURE_SETTLE_MS = 350;
+
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const OVERLAY_CHIPS: { key: keyof ShareOverlays; label: string }[] = [
   { key: 'date', label: 'DATE' },
@@ -116,27 +129,33 @@ export default function ExportScreen() {
   );
 
   /**
-   * Rasterizes the capture target. `capturing` is flipped first so the subtree drops its
-   * blend layers — `mixBlendMode` subtrees are what make `captureRef` fail — and a frame is
-   * yielded so that re-render actually commits before the snapshot is taken.
+   * Rasterizes the export.
+   *
+   * The capture target is mounted off-screen only for the duration of the snapshot, laid out
+   * at `CAPTURE_LAYOUT_WIDTH` — which is chosen so `layoutWidth × pixelRatio ≈ 1080`, the
+   * output size we actually want. An earlier version laid the canvas out at 1080 *points* and
+   * scaled it down with a transform for the preview; on a 3× device that is a 3240px-wide
+   * backing store (~50-75MB for a 4:5 or 9:16 frame), which is enough to take the process
+   * down mid-snapshot. Rendering at ~360pt and letting the device's own pixel ratio supply
+   * the resolution costs a ninth of the memory for the same 1080px result.
+   *
+   * `capturing` is flipped first so the subtree also drops its blend layers, and a couple of
+   * frames plus a short settle are yielded so layout commits and the photos decode before the
+   * snapshot is taken.
    */
   const renderToFile = useCallback(async (): Promise<string | null> => {
-    if (!captureViewRef.current) return null;
     setCapturing(true);
     try {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      const uri = await captureRef(captureViewRef, {
-        format: 'png',
-        quality: 1,
-        result: 'tmpfile',
-        width: EXPORT_WIDTH,
-        height: Math.round(EXPORT_WIDTH / ASPECT_RATIOS[aspect]),
-      });
+      await nextFrame();
+      await nextFrame();
+      await delay(CAPTURE_SETTLE_MS);
+      if (!captureViewRef.current) return null;
+      const uri = await captureRef(captureViewRef, { format: 'png', quality: 1, result: 'tmpfile' });
       return uri ? toFileUri(uri) : null;
     } finally {
       setCapturing(false);
     }
-  }, [aspect]);
+  }, []);
 
   async function resolveUri(): Promise<string | null> {
     if (saveRawInstead && subject?.kind === 'card') return toFileUri(subject.card.photoUri);
@@ -162,6 +181,49 @@ export default function ExportScreen() {
     } catch (error) {
       Alert.alert('Could not save', describe(error));
       console.error('[share] save failed', error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Saves each of a Set's photos to the library as its own original file — no composition,
+   * no downscale. Separate from "Save image", which produces one composed picture.
+   */
+  async function handleSaveEachPhoto() {
+    if (busy || subject?.kind !== 'set') return;
+    const photos = subject.set.cards.filter((card): card is NonNullable<typeof card> => card !== null);
+    if (photos.length === 0) return;
+
+    setBusy(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow photo library access to save these photos.');
+        return;
+      }
+      let saved = 0;
+      const failures: string[] = [];
+      for (const card of photos) {
+        try {
+          await MediaLibrary.saveToLibraryAsync(toFileUri(card.photoUri));
+          saved += 1;
+        } catch (error) {
+          failures.push(card.date);
+          console.error('[share] could not save photo', card.date, error);
+        }
+      }
+      // Reported honestly rather than as a blanket success — a partial save is the likely
+      // outcome if a photo file went missing, and silently claiming all N saved would hide it.
+      Alert.alert(
+        failures.length === 0 ? 'Saved' : 'Partly saved',
+        failures.length === 0
+          ? `${saved} ${saved === 1 ? 'photo' : 'photos'} saved to your library.`
+          : `${saved} of ${photos.length} saved. Could not save: ${failures.join(', ')}.`
+      );
+    } catch (error) {
+      Alert.alert('Could not save', describe(error));
+      console.error('[share] batch save failed', error);
     } finally {
       setBusy(false);
     }
@@ -200,12 +262,10 @@ export default function ExportScreen() {
 
   if (!subject || !template) return <View style={styles.screen} />;
 
-  // The capture target is laid out at full export width and scaled down purely for display,
-  // so the snapshot is taken from real 1080px-wide layout rather than an upscaled preview.
-  const previewWidth = Math.min(s(230), EXPORT_WIDTH);
-  const previewScale = previewWidth / EXPORT_WIDTH;
+  const previewWidth = s(230);
   const previewHeight = previewWidth / ASPECT_RATIOS[aspect];
   const isCardSubject = subject.kind === 'card';
+  const canvasOverlays = saveRawInstead ? BARE_OVERLAYS : overlays;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + s(12) }]}>
@@ -221,28 +281,35 @@ export default function ExportScreen() {
 
       <View style={styles.stage}>
         <View style={{ width: previewWidth, height: previewHeight }}>
-          <View
-            ref={captureViewRef}
-            collapsable={false}
-            style={{
-              width: EXPORT_WIDTH,
-              height: EXPORT_WIDTH / ASPECT_RATIOS[aspect],
-              transform: [{ scale: previewScale }],
-              transformOrigin: 'top left',
-            }}
-          >
-            <CaptureProvider capturing={capturing}>
+          <ShareCanvas
+            subject={subject}
+            template={template}
+            aspect={aspect}
+            width={previewWidth}
+            overlays={canvasOverlays}
+          />
+        </View>
+      </View>
+
+      {/* The capture target: the same canvas at export resolution, mounted off-screen and
+          only while a snapshot is in flight, so it costs nothing at rest. `ShareCanvas` is
+          fully width-parameterised, so this is the identical composition — not a second
+          implementation that could drift from the preview. */}
+      {capturing && (
+        <View style={styles.offscreen} pointerEvents="none">
+          <View ref={captureViewRef} collapsable={false}>
+            <CaptureProvider capturing>
               <ShareCanvas
                 subject={subject}
                 template={template}
                 aspect={aspect}
-                width={EXPORT_WIDTH}
-                overlays={saveRawInstead ? BARE_OVERLAYS : overlays}
+                width={CAPTURE_LAYOUT_WIDTH}
+                overlays={canvasOverlays}
               />
             </CaptureProvider>
           </View>
         </View>
-      </View>
+      )}
 
       <ScrollView
         style={styles.controls}
@@ -313,13 +380,24 @@ export default function ExportScreen() {
           </View>
         </View>
 
-        {isCardSubject && (
+        {isCardSubject ? (
           <Pressable style={styles.rawRow} onPress={() => setSaveRawInstead((value) => !value)}>
             <View style={styles.rawCopy}>
               <Text style={styles.rawTitle}>Save raw photo instead</Text>
               <Text style={styles.rawSubtitle}>Unstyled, full resolution</Text>
             </View>
             <PillSwitch value={saveRawInstead} skin={skin} />
+          </Pressable>
+        ) : (
+          <Pressable style={styles.rawRow} onPress={handleSaveEachPhoto} disabled={busy}>
+            <View style={styles.rawCopy}>
+              <Text style={styles.rawTitle}>Save each photo separately</Text>
+              <Text style={styles.rawSubtitle}>
+                {subject.set.cardCount} {subject.set.cardCount === 1 ? 'original' : 'originals'}, full
+                resolution, unstyled
+              </Text>
+            </View>
+            <Ionicons name="download-outline" size={s(20)} color={skin.shell.accent} />
           </Pressable>
         )}
 
@@ -422,6 +500,12 @@ function createStyles(skin: SkinTokens) {
     headerAction: {
       ...body(11, 600),
       color: skin.shell.accent,
+    },
+    offscreen: {
+      position: 'absolute',
+      left: -10000,
+      top: 0,
+      opacity: 1,
     },
     stage: {
       flex: 1,

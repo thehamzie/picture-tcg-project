@@ -10,7 +10,18 @@
 // descriptor in the skin-selector screen (2i), so their remaining fields are ESTIMATED by
 // analogy to Warm Binder's confirmed structure — each is marked individually below.
 
-export type SkinId = 'warmBinder' | 'cardShop97' | 'scrapbookSun' | 'foilArcade';
+export type SkinId =
+  | 'warmBinder'
+  | 'cardShop97'
+  | 'scrapbookSun'
+  | 'foilArcade'
+  // The four below are NOT from the design source — the mockup only ever shows the original
+  // four. They're new token sets built to the same structure, which is the whole point of
+  // "skins are tokens, not forks": a new one is a config entry, not a design pass.
+  | 'midnightInk'
+  | 'sakuraPress'
+  | 'forestPress'
+  | 'monoPress';
 
 export type ShellTokens = {
   background: string;
@@ -260,9 +271,215 @@ export const SKINS: Record<SkinId, SkinTokens> = {
       labelColor: '#6D3FD4', // ESTIMATED — the gradient's mid stop, darkened for chrome cardstock
     },
   },
+
+  // ---------------------------------------------------------------------------------------
+  // NEW skins. Nothing below appears in the design source; each is an original token set
+  // following Warm Binder's confirmed structure (ink rule = shell background on dark skins, a
+  // plain dark ink on light ones; foil = transparent → white highlight → the skin's own hues →
+  // transparent, at the same 112° sweep and 74°/0.22 grain the source fixes for every skin).
+  // ---------------------------------------------------------------------------------------
+
+  midnightInk: {
+    id: 'midnightInk',
+    name: 'Midnight Ink',
+    descriptor: 'DEEP BLUE · SILVER FOIL',
+    shell: {
+      background: '#0B1020',
+      surface: '#141B33',
+      border: 'rgba(226,235,255,0.1)',
+      textPrimary: '#E2EBFF',
+      textSecondary: 'rgba(226,235,255,0.5)',
+      textTertiary: 'rgba(226,235,255,0.35)',
+      accent: '#7FA8FF',
+      highlight: '#A8C4FF',
+      onAccent: '#0B1020',
+      accentShadow: '#4F72BE',
+      faceDownHatch: 'rgba(127,168,255,0.13)',
+    },
+    page: {
+      background: '#1B2340',
+      ink: '#E2EBFF',
+      ring: '#060912',
+      spine: '#243060',
+      spineBack: '#141B33',
+      texture: 'none',
+    },
+    cardstock: {
+      base: '#EEF2FC',
+      mat: '#DDE4F4',
+      border: '#0B1020',
+      inkRule: '#0B1020',
+      photoPlaceholder: '#B4BED4',
+    },
+    foilRamp: {
+      sweep: [
+        'transparent',
+        'rgba(255,255,255,0.85)',
+        'rgba(168,196,255,0.8)',
+        'rgba(198,214,255,0.7)',
+        'transparent',
+      ],
+      sweepLocations: [0.18, 0.34, 0.48, 0.64, 0.82],
+      grainAngleDeg: 74,
+      grainOpacity: 0.22,
+      labelColor: '#3E5EA8',
+    },
+  },
+
+  sakuraPress: {
+    id: 'sakuraPress',
+    name: 'Sakura Press',
+    descriptor: 'SOFT PAPER · ROSE FOIL',
+    shell: {
+      background: '#F6E9EC',
+      surface: '#EBD7DC',
+      border: 'rgba(74,42,52,0.15)',
+      textPrimary: '#4A2A34',
+      textSecondary: 'rgba(74,42,52,0.6)',
+      textTertiary: 'rgba(74,42,52,0.42)',
+      accent: '#D9557E',
+      highlight: '#EE6F95',
+      onAccent: '#FFF6F8',
+      accentShadow: '#A63C5D',
+      faceDownHatch: 'rgba(217,85,126,0.13)',
+    },
+    page: {
+      background: '#EBD7DC',
+      ink: '#4A2A34',
+      ring: '#4A2A34',
+      spine: '#DFC6CD',
+      spineBack: '#CFB2BB',
+      texture: 'none',
+    },
+    cardstock: {
+      base: '#FFF6F8',
+      mat: '#F7E5E9',
+      border: '#4A2A34',
+      inkRule: '#4A2A34',
+      photoPlaceholder: '#D6BFC5',
+    },
+    foilRamp: {
+      sweep: [
+        'transparent',
+        'rgba(255,255,255,0.85)',
+        'rgba(255,183,206,0.8)',
+        'rgba(217,85,126,0.55)',
+        'transparent',
+      ],
+      sweepLocations: [0.18, 0.34, 0.48, 0.64, 0.82],
+      grainAngleDeg: 74,
+      grainOpacity: 0.22,
+      labelColor: '#B03A62',
+    },
+  },
+
+  forestPress: {
+    id: 'forestPress',
+    name: 'Forest Press',
+    descriptor: 'DEEP GREEN · BRASS FOIL',
+    shell: {
+      background: '#0E1A14',
+      surface: '#17271F',
+      border: 'rgba(226,240,230,0.1)',
+      textPrimary: '#E2F0E6',
+      textSecondary: 'rgba(226,240,230,0.5)',
+      textTertiary: 'rgba(226,240,230,0.35)',
+      accent: '#C7A24A',
+      highlight: '#DFB95C',
+      onAccent: '#0E1A14',
+      accentShadow: '#957734',
+      faceDownHatch: 'rgba(199,162,74,0.13)',
+    },
+    page: {
+      background: '#DCE4D3',
+      ink: '#0E1A14',
+      ring: '#0E1A14',
+      spine: '#1E3227',
+      spineBack: '#17271F',
+      texture: 'none',
+    },
+    cardstock: {
+      base: '#F3F6EC',
+      mat: '#E4EADA',
+      border: '#0E1A14',
+      inkRule: '#0E1A14',
+      photoPlaceholder: '#BDC7B2',
+    },
+    foilRamp: {
+      sweep: [
+        'transparent',
+        'rgba(255,255,255,0.85)',
+        'rgba(223,185,92,0.8)',
+        'rgba(140,214,168,0.7)',
+        'transparent',
+      ],
+      sweepLocations: [0.18, 0.34, 0.5, 0.66, 0.82],
+      grainAngleDeg: 74,
+      grainOpacity: 0.22,
+      labelColor: '#8A6E22',
+    },
+  },
+
+  monoPress: {
+    id: 'monoPress',
+    name: 'Mono Press',
+    descriptor: 'GREYSCALE · ONE RED',
+    shell: {
+      background: '#121212',
+      surface: '#1E1E1E',
+      border: 'rgba(240,240,240,0.12)',
+      textPrimary: '#F0F0F0',
+      textSecondary: 'rgba(240,240,240,0.5)',
+      textTertiary: 'rgba(240,240,240,0.35)',
+      accent: '#E63946',
+      highlight: '#F4646F',
+      onAccent: '#FFFFFF',
+      accentShadow: '#A32A33',
+      faceDownHatch: 'rgba(240,240,240,0.1)',
+    },
+    page: {
+      background: '#E8E8E8',
+      ink: '#121212',
+      ring: '#121212',
+      spine: '#2A2A2A',
+      spineBack: '#1E1E1E',
+      texture: 'none',
+    },
+    cardstock: {
+      base: '#FAFAFA',
+      mat: '#EDEDED',
+      border: '#121212',
+      inkRule: '#121212',
+      photoPlaceholder: '#C4C4C4',
+    },
+    foilRamp: {
+      // Deliberately colourless apart from the accent — this skin's whole idea is that red is
+      // the only hue in the app besides the vibe tags, which stay constant by design.
+      sweep: [
+        'transparent',
+        'rgba(255,255,255,0.9)',
+        'rgba(200,200,200,0.6)',
+        'rgba(230,57,70,0.5)',
+        'transparent',
+      ],
+      sweepLocations: [0.2, 0.36, 0.5, 0.66, 0.84],
+      grainAngleDeg: 74,
+      grainOpacity: 0.22,
+      labelColor: '#B32833',
+    },
+  },
 };
 
-export const SKIN_ORDER: SkinId[] = ['warmBinder', 'cardShop97', 'scrapbookSun', 'foilArcade'];
+export const SKIN_ORDER: SkinId[] = [
+  'warmBinder',
+  'cardShop97',
+  'scrapbookSun',
+  'foilArcade',
+  'midnightInk',
+  'forestPress',
+  'sakuraPress',
+  'monoPress',
+];
 
 /**
  * The 4-swatch preview strip shown per skin in the selector (2i), in the source's order:
@@ -275,4 +492,9 @@ export const SKIN_SWATCHES: Record<SkinId, string[][]> = {
   cardShop97: [['#16141C'], ['#221E2B'], ['#F4ECDC'], ['#E0A32E']],
   scrapbookSun: [['#E8D9BE'], ['#DCCCB0'], ['#FFF8EC'], ['#D9411F']],
   foilArcade: [['#100B1F'], ['#1C1233'], ['#D9D6E8', '#7A7591'], ['#52E6D8', '#8B5CF6', '#FF4FB8']],
+  // NEW skins — swatches mirror each token set's shell / page / cardstock / foil.
+  midnightInk: [['#0B1020'], ['#1B2340'], ['#EEF2FC'], ['#7FA8FF', '#C6D6FF']],
+  forestPress: [['#0E1A14'], ['#DCE4D3'], ['#F3F6EC'], ['#C7A24A', '#8CD6A8']],
+  sakuraPress: [['#F6E9EC'], ['#EBD7DC'], ['#FFF6F8'], ['#D9557E', '#FFB7CE']],
+  monoPress: [['#121212'], ['#E8E8E8'], ['#FAFAFA'], ['#E63946']],
 };

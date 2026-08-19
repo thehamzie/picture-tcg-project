@@ -20,3 +20,17 @@ export function saveCardPhoto(sourceUri: string, date: string): string {
   source.copy(destination);
   return destination.uri;
 }
+
+/**
+ * Deletes a card's stored photo. Missing or already-deleted files are not an error — the
+ * caller is removing the row either way, and refusing to finish a delete because the file was
+ * already gone would leave the user stuck with a card they asked to remove.
+ */
+export function deleteCardPhoto(photoUri: string): void {
+  try {
+    const file = new File(photoUri);
+    if (file.exists) file.delete();
+  } catch (error) {
+    console.warn('[photoStorage] could not delete photo', photoUri, error);
+  }
+}
