@@ -1,38 +1,52 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 
+import FaceDownCard from '../components/FaceDownCard';
+import HardButton from '../components/HardButton';
 import type { RootStackParamList } from '../navigation/types';
+import { withAlpha } from '../theme/color';
+import type { SkinTokens } from '../theme/skins';
+import { useSkin } from '../theme/SkinContext';
 import { theme } from '../theme/theme';
+import { body, display, mono, s } from '../theme/typography';
+import { HOLO_BASE_CHANCE } from '../utils/holo';
+
+// Onboarding. No mockup exists for this screen, so it's built from the same tokens as the
+// rest: mono step label, heavy-caps headline, one line of body copy, the gold hard button.
+//
+// The copy is fresh rather than carried over — CLAUDE.md explicitly flags the old Everdot
+// wording as fair game, and the old text described a month calendar grid ("each day gets its
+// own little dot on the calendar") that this rebuild no longer has.
 
 type Step = {
-  color: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
   title: string;
-  subtitle: string;
+  body: string;
+  accentColor?: string;
   hasTimePicker?: boolean;
 };
 
 const STEPS: Step[] = [
   {
-    color: theme.colors.vibe.adventure,
-    icon: 'camera',
-    title: 'one day, one photo',
-    subtitle: 'no clutter, just the moments that mattered.',
+    label: 'ONE · CAPTURE',
+    title: 'One photo a day',
+    body: 'No feed, no backlog, nothing to catch up on. One picture, any time before midnight.',
   },
   {
-    color: theme.colors.vibe.calm,
-    icon: 'calendar',
-    title: 'watch your year fill in',
-    subtitle: 'each day gets its own little dot on the calendar.',
+    label: 'TWO · COLLECT',
+    title: 'Every week is a set',
+    body: 'Seven cards fill a binder page. Finish one and it opens like a pack — once, when you come back to it.',
+    accentColor: theme.colors.vibe.calm,
   },
   {
-    color: theme.colors.vibe.together,
-    icon: 'notifications',
-    title: "we'll remind you",
-    subtitle: 'pick a time that works for you.',
+    label: 'THREE · REMIND',
+    title: `About 1 in ${Math.round(1 / HOLO_BASE_CHANCE)} pulls foil`,
+    body: 'Keep a streak and every seventh day is guaranteed. Pick a time and we will nudge you once.',
+    accentColor: theme.colors.vibe.together,
     hasTimePicker: true,
   },
 ];
@@ -49,6 +63,9 @@ function formatTime(hour: number, minute: number): string {
 
 export default function OnboardingScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { skin } = useSkin();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => createStyles(skin), [skin]);
   const [stepIndex, setStepIndex] = useState(0);
   const [reminderMinutesTotal, setReminderMinutesTotal] = useState(DEFAULT_REMINDER_MINUTES);
 
@@ -56,14 +73,6 @@ export default function OnboardingScreen() {
   const isLastStep = stepIndex === STEPS.length - 1;
   const reminderHour = Math.floor(reminderMinutesTotal / 60);
   const reminderMinute = reminderMinutesTotal % 60;
-
-  function adjustReminderTime(deltaMinutes: number) {
-    setReminderMinutesTotal((prev) => (prev + deltaMinutes + MINUTES_PER_DAY) % MINUTES_PER_DAY);
-  }
-
-  function goToLastStep() {
-    setStepIndex(STEPS.length - 1);
-  }
 
   function handleNext() {
     if (!isLastStep) {
@@ -74,160 +83,151 @@ export default function OnboardingScreen() {
   }
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.skipRow}>
-        <Pressable onPress={goToLastStep} hitSlop={8} disabled={isLastStep}>
-          <Text style={[styles.skipText, isLastStep && styles.hidden]}>skip</Text>
+    <View style={[styles.screen, { paddingTop: insets.top + s(16), paddingBottom: insets.bottom + s(20) }]}>
+      <View style={styles.topRow}>
+        <Text style={styles.wordmark}>Daily Pull</Text>
+        <Pressable onPress={() => setStepIndex(STEPS.length - 1)} hitSlop={10} disabled={isLastStep}>
+          <Text style={[styles.skip, isLastStep && styles.invisible]}>SKIP</Text>
         </Pressable>
       </View>
 
-      <View style={styles.content}>
-        <View style={[styles.iconCircle, { backgroundColor: step.color }]}>
-          <Ionicons name={step.icon} size={34} color={theme.colors.surface} />
-        </View>
+      <View style={styles.stage}>
+        <FaceDownCard width={s(150)} tilted float />
+      </View>
+
+      <Animated.View key={stepIndex} entering={FadeInDown.duration(340)} style={styles.copy}>
+        <Text style={[styles.stepLabel, step.accentColor ? { color: step.accentColor } : null]}>
+          {step.label}
+        </Text>
         <Text style={styles.title}>{step.title}</Text>
-        <Text style={styles.subtitle}>{step.subtitle}</Text>
+        <Text style={styles.bodyText}>{step.body}</Text>
 
         {step.hasTimePicker && (
-          <View style={styles.timePicker}>
+          <Animated.View entering={FadeIn.delay(160)} style={styles.timePicker}>
             <Pressable
-              style={styles.timeStepButton}
-              onPress={() => adjustReminderTime(-MINUTE_STEP)}
+              style={styles.timeStep}
               hitSlop={8}
+              onPress={() =>
+                setReminderMinutesTotal((prev) => (prev - MINUTE_STEP + MINUTES_PER_DAY) % MINUTES_PER_DAY)
+              }
             >
               <Text style={styles.timeStepText}>−</Text>
             </Pressable>
             <Text style={styles.timeValue}>{formatTime(reminderHour, reminderMinute)}</Text>
             <Pressable
-              style={styles.timeStepButton}
-              onPress={() => adjustReminderTime(MINUTE_STEP)}
+              style={styles.timeStep}
               hitSlop={8}
+              onPress={() => setReminderMinutesTotal((prev) => (prev + MINUTE_STEP) % MINUTES_PER_DAY)}
             >
               <Text style={styles.timeStepText}>+</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         )}
-      </View>
+      </Animated.View>
 
-      <View style={styles.dots}>
+      <View style={styles.pipRow}>
         {STEPS.map((_, index) => (
-          <View
-            key={index}
-            style={[styles.dot, index === stepIndex ? styles.dotActive : styles.dotInactive]}
-          />
+          <View key={index} style={[styles.pip, index === stepIndex ? styles.pipActive : styles.pipInactive]} />
         ))}
       </View>
 
-      <Pressable style={styles.nextButton} onPress={handleNext}>
-        <Text style={styles.nextButtonText}>{isLastStep ? 'get started' : 'next'}</Text>
-      </Pressable>
+      <HardButton
+        label={isLastStep ? 'Get started' : 'Next'}
+        onPress={handleNext}
+        style={styles.cta}
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  skipRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  skipText: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
-  hidden: {
-    opacity: 0,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 14,
-    paddingHorizontal: 6,
-  },
-  iconCircle: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '500',
-    color: theme.colors.textPrimary,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 13,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 19.5,
-  },
-  timePicker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    marginTop: 4,
-  },
-  timeStepButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timeStepText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.textPrimary,
-  },
-  timeValue: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: theme.colors.textPrimary,
-    minWidth: 82,
-    textAlign: 'center',
-  },
-  dots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 6,
-    marginVertical: 12,
-  },
-  dot: {
-    height: 6,
-    borderRadius: 3,
-  },
-  dotActive: {
-    width: 16,
-    backgroundColor: theme.colors.accent,
-  },
-  dotInactive: {
-    width: 6,
-    backgroundColor: theme.colors.border,
-  },
-  nextButton: {
-    width: '100%',
-    paddingVertical: 14,
-    borderRadius: theme.cardShape.radiusFull,
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-  },
-  nextButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: theme.colors.textPrimary,
-  },
-});
+function createStyles(skin: SkinTokens) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: skin.shell.background,
+      paddingHorizontal: s(22),
+    },
+    topRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    wordmark: {
+      ...display(13),
+      color: skin.shell.accent,
+    },
+    skip: {
+      ...mono(9, 0.14),
+      color: skin.shell.textSecondary,
+    },
+    invisible: {
+      opacity: 0,
+    },
+    stage: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    copy: {
+      gap: s(6),
+      minHeight: s(150),
+    },
+    stepLabel: {
+      ...mono(9, 0.2),
+      color: skin.shell.accent,
+    },
+    title: {
+      ...display(26, 1.05),
+      color: skin.shell.textPrimary,
+      marginTop: s(4),
+    },
+    bodyText: {
+      ...body(13, 400, 1.5),
+      color: skin.shell.textSecondary,
+      marginTop: s(4),
+    },
+    timePicker: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: s(14),
+      marginTop: s(12),
+    },
+    timeStep: {
+      width: s(34),
+      height: s(34),
+      borderRadius: s(8),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: withAlpha(skin.shell.textPrimary, 0.08),
+    },
+    timeStepText: {
+      ...display(15),
+      color: skin.shell.textPrimary,
+    },
+    timeValue: {
+      ...mono(12, 0.08),
+      color: skin.shell.textPrimary,
+      minWidth: s(88),
+      textAlign: 'center',
+    },
+    pipRow: {
+      flexDirection: 'row',
+      gap: s(5),
+      marginVertical: s(18),
+    },
+    pip: {
+      flex: 1,
+      height: s(4),
+      borderRadius: s(2),
+    },
+    pipActive: {
+      backgroundColor: skin.shell.highlight,
+    },
+    pipInactive: {
+      backgroundColor: withAlpha(skin.shell.textPrimary, 0.16),
+    },
+    cta: {
+      alignSelf: 'stretch',
+    },
+  });
+}

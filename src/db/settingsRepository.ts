@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { DEFAULT_SKIN_ID, type SkinId } from '../theme/skins';
 import { todayDateKey } from '../utils/date';
 
 export async function getSetting(db: SQLiteDatabase, key: string): Promise<string | null> {
@@ -29,4 +30,13 @@ export async function getOnboardingComplete(db: SQLiteDatabase): Promise<boolean
 
 export async function setOnboardingComplete(db: SQLiteDatabase): Promise<void> {
   await setSetting(db, 'onboarding_complete', '1');
+}
+
+export async function getSkinId(db: SQLiteDatabase): Promise<SkinId> {
+  const value = await getSetting(db, 'skin_id');
+  return (value as SkinId | null) ?? DEFAULT_SKIN_ID;
+}
+
+export async function setSkinId(db: SQLiteDatabase, skinId: SkinId): Promise<void> {
+  await setSetting(db, 'skin_id', skinId);
 }

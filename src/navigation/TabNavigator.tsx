@@ -1,9 +1,9 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-import CollectionScreen from '../screens/CollectionScreen';
-import HomeScreen from '../screens/HomeScreen';
-import OpenCardScreen from '../screens/OpenCardScreen';
-import { theme } from '../theme/theme';
+import BinderScreen from '../screens/BinderScreen';
+import SetsScreen from '../screens/SetsScreen';
+import TodayScreen from '../screens/TodayScreen';
+import DailyPullTabBar from './DailyPullTabBar';
 import type { TabParamList } from './types';
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -11,19 +11,12 @@ const Tab = createBottomTabNavigator<TabParamList>();
 export default function TabNavigator() {
   return (
     <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: theme.colors.accent,
-        tabBarInactiveTintColor: theme.colors.textSecondary,
-        tabBarStyle: {
-          backgroundColor: theme.colors.surface,
-          borderTopColor: theme.colors.border,
-        },
-      }}
+      screenOptions={{ headerShown: false }}
+      tabBar={(props) => <DailyPullTabBar {...props} />}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Collection" component={CollectionScreen} />
-      <Tab.Screen name="Open" component={OpenCardScreen} />
+      <Tab.Screen name="Today" component={TodayScreen} options={{ tabBarLabel: 'TODAY' }} />
+      <Tab.Screen name="Binder" component={BinderScreen} options={{ tabBarLabel: 'BINDER' }} />
+      <Tab.Screen name="Sets" component={SetsScreen} options={{ tabBarLabel: 'SETS' }} />
     </Tab.Navigator>
   );
 }
