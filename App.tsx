@@ -8,6 +8,7 @@ import { SQLiteProvider } from 'expo-sqlite';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import ErrorBoundary from './src/components/ErrorBoundary';
 import { isLightSurface } from './src/theme/color';
 import { migrateDbIfNeeded } from './src/db/schema';
 import RootNavigator from './src/navigation/RootNavigator';
@@ -36,13 +37,15 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayout}>
-      <SafeAreaProvider>
-        <SQLiteProvider databaseName="dailypull.db" onInit={migrateDbIfNeeded}>
-          <SkinProvider>
-            <ThemedNavigation />
-          </SkinProvider>
-        </SQLiteProvider>
-      </SafeAreaProvider>
+      <ErrorBoundary>
+        <SafeAreaProvider>
+          <SQLiteProvider databaseName="dailypull.db" onInit={migrateDbIfNeeded}>
+            <SkinProvider>
+              <ThemedNavigation />
+            </SkinProvider>
+          </SQLiteProvider>
+        </SafeAreaProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }

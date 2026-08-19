@@ -6,10 +6,10 @@ import { getOnboardingComplete } from '../db/settingsRepository';
 import CameraScreen from '../screens/CameraScreen';
 import CardDetailScreen from '../screens/CardDetailScreen';
 import ExportScreen from '../screens/ExportScreen';
-import ManualCameraScreen from '../screens/ManualCameraScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import PermissionsScreen from '../screens/PermissionsScreen';
 import RevealScreen from '../screens/RevealScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import SkinSelectorScreen from '../screens/SkinSelectorScreen';
 import TabNavigator from './TabNavigator';
 import type { RootStackParamList } from './types';
@@ -40,15 +40,11 @@ export default function RootNavigator() {
       <Stack.Screen name="Permissions" component={PermissionsScreen} />
       <Stack.Screen name="Main" component={TabNavigator} />
       <Stack.Screen name="Camera" component={CameraScreen} options={{ presentation: 'fullScreenModal' }} />
-      <Stack.Screen
-        name="ManualCamera"
-        component={ManualCameraScreen}
-        options={{ presentation: 'fullScreenModal' }}
-      />
       <Stack.Screen name="Reveal" component={RevealScreen} />
       <Stack.Screen name="CardDetail" component={CardDetailScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="Export" component={ExportScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="SkinSelector" component={SkinSelectorScreen} options={{ presentation: 'modal' }} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ presentation: 'modal' }} />
     </Stack.Navigator>
   );
 }

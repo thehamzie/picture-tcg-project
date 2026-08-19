@@ -386,6 +386,53 @@ app.
   - Deleted `ScreenPlaceholder.tsx` (dead). `npx tsc --noEmit` clean; iOS and Android bundles
     both build. Still no simulator/device in this environment.
 
+- **Crash diagnosis made possible; manual camera merged into Camera; Settings + backup.**
+  Both crashes survived two rounds of inference, so this pass stopped guessing and changed the
+  structure instead.
+  - **`ErrorBoundary` at the root of `App.tsx`.** Without it, an uncaught JS error unmounts the
+    tree and the app simply vanishes — indistinguishable from a native crash and impossible to
+    report. Now a JS error renders a readable, selectable message + stack. **This is also a
+    diagnostic:** if a failure still kills the app *without* showing that screen, the fault is
+    native (a module, the camera session, an out-of-memory) and only the device log will have
+    it. Deliberately styled without `useSkin` or the bundled fonts, so it still renders when
+    the theme or the font loader is what broke.
+  - **Manual camera is no longer a separate screen.** `ManualCameraScreen.tsx` is deleted and
+    the `ManualCamera` route is gone; manual is now a drawer on `CameraScreen`, toggled by the
+    AUTO/MANUAL pill. This is what the mockup describes ("manual drawer pulled up… auto still
+    shoots underneath", 2c), and structurally it means the app now contains **exactly one
+    `CameraView`**, which is unmounted whenever the screen is unfocused. The previous fix
+    (`useIsFocused` + `replace`) reduced the window for two competing capture sessions but
+    didn't eliminate it; merging the screens does.
+  - **Share capture, shape 4.** The history is worth keeping because each shape failed
+    differently: (1) ~200pt preview upscaled via captureRef's `width`/`height` — soft;
+    (2) canvas laid out at 1080 **points** and transform-scaled for display — a 3240px backing
+    store, ~50-75MB, enough to exhaust memory mid-snapshot; (3) a copy mounted off-screen at
+    `left: -10000` — light, but snapshotting a view the compositor never had reason to render
+    is unreliable. Now: laid out at `CAPTURE_LAYOUT_WIDTH` (~360pt, so `layout × pixelRatio`
+    still lands near 1080px) and scaled for display by a transform **on the captured node
+    itself**. That transform is safe — both backends rasterize from layout bounds
+    (`view.bounds` on iOS, `getWidth()/getHeight()` on Android) and a view's own transform
+    affects its frame in its parent, not the content it draws. Shape 2's mistake was the
+    1080-point layout, not the scaling. "Use the raw photo instead" now applies to Share as
+    well as Save, giving a path that never touches view-shot at all.
+  - **Settings screen** (`Settings` route, modal; gear in Today's header, replacing the
+    unlabelled palette icon). Houses three things that had no home: the daily reminder
+    (scheduled once during onboarding and then unreachable — now persisted in `app_settings`
+    via `getReminder`/`setReminder`, editable, and cancellable), the skin picker, and getting
+    a copy of the collection out.
+  - **Backup — the release blocker.** New `utils/backup.ts`, deliberately two honest operations
+    rather than one "Backup" button that implies more than it delivers:
+    `saveAllPhotosToLibrary` copies every photo into the OS library (grouped into a "Daily
+    Pull" album where permitted), which is the part that genuinely protects against loss since
+    the library is already covered by iCloud/Google Photos; and `writeCollectionExport` writes
+    dates/titles/vibes/rarity as JSON to share. Settings states plainly that cards live only on
+    the phone. **This is not a restore** — the export carries `photoFilename` so a future
+    import can re-link records to files, but nothing reads it back yet.
+  - Android adaptive-icon background changed from `#E6F4FE` (a light blue belonging to no skin)
+    to Warm Binder's `#17130F`.
+  - `npx tsc --noEmit` clean; iOS and Android bundles both build. Still no simulator/device
+    here — the crash fixes are structural, not observed.
+
 ## Open decisions
 
 - **"Look back" (random past-card recall) and a dedicated empty-first-run screen were

@@ -3,12 +3,13 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CameraView, useCameraPermissions, type CameraType, type FlashMode } from 'expo-camera';
+import { CameraView, useCameraPermissions, type CameraType, type FlashMode, type FocusMode } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 
 import HardButton from '../components/HardButton';
+import Slider from '../components/Slider';
 import type { RootStackParamList } from '../navigation/types';
 import { withAlpha } from '../theme/color';
 import { placeholderHatch } from '../theme/gradients';
@@ -18,19 +19,26 @@ import { body, display, mono, s } from '../theme/typography';
 import { todayDateKey } from '../utils/date';
 import { saveCardPhoto } from '../utils/photoStorage';
 
-// Camera, auto-first — mockup 2b. "Full viewfinder, live filter strip, one shutter. Manual
-// lives behind the small pill."
+// Camera — mockups 2b (auto) and 2c (manual drawer).
 //
-// The camera chrome deliberately stays fixed dark/cream rather than skin-tinted: it sits on
-// top of a live camera feed, and some skin accents (Scrapbook Sun's light orange) wouldn't
-// read as a translucent scrim over arbitrary photo content. Only the accent-colored bits
-// (mode pill, shutter fill, AF box) follow the skin.
+// Auto and manual are ONE screen with one `CameraView`, not two screens. That's what the
+// mockup describes ("manual drawer pulled up… auto still shoots underneath"), and it removes
+// the failure mode that a separate manual screen kept reintroducing: two mounted CameraViews
+// meant two native capture sessions competing for the same hardware, which crashes. There is
+// now exactly one camera in the app, and it is unmounted whenever the screen isn't focused.
+//
+// Which manual controls are real, unchanged from earlier findings:
+//   ZOOM   real — CameraView's `zoom` prop (0..1), both platforms.
+//   FOCUS  real but binary — expo-camera exposes autofocus only as an on/off `FocusMode`
+//          (`'on'` = focus once then lock), not a manual distance. iOS only.
+//   EXPOSURE / ISO  NOT real — expo-camera's native CameraView has no exposure-compensation
+//          or ISO prop in its public API. Both are labelled "VISUAL ONLY" rather than
+//          silently pretending to work. Library limitation, not a scoping choice.
 
 type CameraNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Camera'>;
 
-// Cosmetic-only preview filters — confirmed final for MVP (see AGENTS.md). expo-camera has no
-// live filter pipeline on this stack, so these tint the viewfinder for feel and the saved
-// photo is always the raw capture. Swatch colors are the mockup's own.
+// Cosmetic-only preview filters — confirmed final for MVP (see AGENTS.md). Swatches are the
+// mockup's own; the saved photo is always the raw capture.
 const FILTERS = [
   { key: 'none', label: 'NONE', swatch: '#C9BCA3', tint: null },
   { key: 'koda', label: 'KODA', swatch: '#C9A87F', tint: 'rgba(201,168,127,0.22)' },
@@ -46,6 +54,9 @@ const FLASH_ICONS: Record<FlashMode, keyof typeof Ionicons.glyphMap> = {
   on: 'flash',
 };
 
+const EXPOSURE_STOPS = ['-2.0', '-1.0', '0.0', '+0.3', '+1.0', '+2.0'];
+const ISO_STOPS = ['100', '200', '400', '800', '1600'];
+
 export default function CameraScreen() {
   const navigation = useNavigation<CameraNavigationProp>();
   const { skin } = useSkin();
@@ -55,12 +66,29 @@ export default function CameraScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraRef, setCameraRef] = useState<CameraView | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [manual, setManual] = useState(false);
   const [filterIndex, setFilterIndex] = useState(0);
   const [flash, setFlash] = useState<FlashMode>('off');
   const [facing, setFacing] = useState<CameraType>('back');
+  const [zoom, setZoom] = useState(0);
+  const [exposure, setExposure] = useState(0.4);
+  const [iso, setIso] = useState(0.5);
+  const [focus, setFocus] = useState(0);
 
   const today = todayDateKey();
   const activeFilter = FILTERS[filterIndex];
+  const focusLocked = focus > 0.5;
+  const focusMode: FocusMode = focusLocked ? 'on' : 'off';
+  const exposureLabel = EXPOSURE_STOPS[Math.round(exposure * (EXPOSURE_STOPS.length - 1))];
+  const isoLabel = ISO_STOPS[Math.round(iso * (ISO_STOPS.length - 1))];
+
+  function resetManual() {
+    setZoom(0);
+    setExposure(0.4);
+    setIso(0.5);
+    setFocus(0);
+  }
 
   async function handleCapturedPhoto(sourceUri: string) {
     try {
@@ -68,7 +96,7 @@ export default function CameraScreen() {
       navigation.replace('Reveal', { photoUri: savedUri });
     } catch (error) {
       Alert.alert('Something went wrong', "Could not save today's card. Please try again.");
-      console.error(error);
+      console.error('[camera] save failed', error);
     }
   }
 
@@ -78,25 +106,31 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.takePictureAsync({ quality: 0.9 });
       if (photo?.uri) await handleCapturedPhoto(photo.uri);
+    } catch (error) {
+      Alert.alert('Could not take the photo', 'Please try again.');
+      console.error('[camera] capture failed', error);
     } finally {
       setSaving(false);
     }
   }
 
   async function pickFromLibrary() {
-    const permissionResponse = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResponse.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to import a photo.');
-      return;
+    try {
+      const permissionResponse = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResponse.granted) {
+        Alert.alert('Permission needed', 'Allow photo library access to import a photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.9 });
+      if (result.canceled || !result.assets[0]) return;
+      await handleCapturedPhoto(result.assets[0].uri);
+    } catch (error) {
+      Alert.alert('Could not open your library', 'Please try again.');
+      console.error('[camera] library import failed', error);
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.9 });
-    if (result.canceled || !result.assets[0]) return;
-    await handleCapturedPhoto(result.assets[0].uri);
   }
 
-  if (!permission) {
-    return <View style={[styles.gate, { backgroundColor: skin.shell.background }]} />;
-  }
+  if (!permission) return <View style={styles.screen} />;
 
   if (!permission.granted) {
     return (
@@ -115,41 +149,57 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Unmounted whenever this screen isn't focused, so the manual camera can never hold a
-          second native capture session at the same time. See ManualCameraScreen. */}
+      {/* The app's only CameraView, and only while this screen is focused. */}
       {isFocused && (
         <CameraView
           ref={setCameraRef}
           style={StyleSheet.absoluteFill}
           facing={facing}
           flash={flash}
+          zoom={zoom}
+          autofocus={manual ? focusMode : 'off'}
           active={isFocused}
         />
       )}
-      {activeFilter.tint && (
+      {activeFilter.tint && !manual && (
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: activeFilter.tint }]} />
       )}
 
-      <View style={[styles.chrome, { paddingTop: insets.top + s(10), paddingBottom: insets.bottom + s(8) }]}>
+      <View style={[styles.chrome, { paddingTop: insets.top + s(10) }]}>
         <View style={styles.topBar}>
           <Pressable style={styles.circleButton} onPress={() => navigation.goBack()} hitSlop={8}>
-            <Ionicons name="close" size={s(17)} color="#F4ECDC" />
+            <Ionicons name="close" size={s(17)} color={CHROME_TEXT} />
           </Pressable>
-          <View style={styles.modePill}>
-            <Text style={styles.modePillText}>AUTO</Text>
-          </View>
-          <View style={styles.topBarRight}>
-            <Pressable
-              style={styles.circleButton}
-              hitSlop={8}
-              onPress={() => setFlash(FLASH_SEQUENCE[(FLASH_SEQUENCE.indexOf(flash) + 1) % FLASH_SEQUENCE.length])}
-            >
-              <Ionicons name={FLASH_ICONS[flash]} size={s(15)} color={flash === 'off' ? '#F4ECDC' : skin.shell.accent} />
-            </Pressable>
-            <View style={styles.circleButton}>
-              <Text style={styles.ratioText}>1:1</Text>
+
+          {/* The mode pill is the toggle — tapping it swaps the drawer in and out. */}
+          <Pressable onPress={() => setManual((value) => !value)} hitSlop={8}>
+            <View style={[styles.modePill, manual && styles.modePillActive]}>
+              <Text style={[styles.modePillText, manual && styles.modePillTextActive]}>
+                {manual ? 'MANUAL' : 'AUTO'}
+              </Text>
             </View>
-          </View>
+          </Pressable>
+
+          {manual ? (
+            <Text style={styles.rawLabel}>RAW+</Text>
+          ) : (
+            <View style={styles.topBarRight}>
+              <Pressable
+                style={styles.circleButton}
+                hitSlop={8}
+                onPress={() => setFlash(FLASH_SEQUENCE[(FLASH_SEQUENCE.indexOf(flash) + 1) % FLASH_SEQUENCE.length])}
+              >
+                <Ionicons
+                  name={FLASH_ICONS[flash]}
+                  size={s(15)}
+                  color={flash === 'off' ? CHROME_TEXT : skin.shell.accent}
+                />
+              </Pressable>
+              <View style={styles.circleButton}>
+                <Text style={styles.ratioText}>1:1</Text>
+              </View>
+            </View>
+          )}
         </View>
 
         <View style={styles.viewfinder}>
@@ -158,62 +208,151 @@ export default function CameraScreen() {
           <View style={[styles.thirdLine, styles.thirdHorizontal, { top: '33.3%' }]} />
           <View style={[styles.thirdLine, styles.thirdHorizontal, { top: '66.6%' }]} />
           {/* The "1:1" badge is literal: the card crops to this square, so it's drawn. */}
-          <View style={styles.cropGuide}>
-            <Text style={styles.cropGuideLabel}>CARD CROP · 1:1</Text>
+          <View style={styles.cropGuideWrap} pointerEvents="none">
+            <View style={styles.cropGuide}>
+              <Text style={styles.cropGuideLabel}>CARD CROP · 1:1</Text>
+            </View>
           </View>
+          {manual && (
+            <Text style={styles.readout}>
+              {`ZOOM ${Math.round(zoom * 100)}%\nISO ${isoLabel} · ${exposureLabel}EV`}
+            </Text>
+          )}
         </View>
 
-        <View style={styles.filterStrip}>
-          {FILTERS.map((filter, index) => (
-            <Pressable key={filter.key} style={styles.filterItem} onPress={() => setFilterIndex(index)}>
-              <View
-                style={[
-                  styles.filterSwatch,
-                  { backgroundColor: filter.swatch },
-                  index === filterIndex && {
-                    boxShadow: [
-                      { offsetX: 0, offsetY: 0, blurRadius: 0, spreadDistance: 2, color: skin.shell.accent },
-                    ],
-                  },
-                  placeholderHatch('rgba(23,19,15,0.14)'),
-                ]}
-              />
-              <Text style={[styles.filterLabel, index === filterIndex && { color: skin.shell.accent }]}>
-                {filter.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        {manual ? (
+          <Animated.View
+            entering={SlideInDown.duration(280)}
+            exiting={SlideOutDown.duration(200)}
+            style={[styles.drawer, { paddingBottom: insets.bottom + s(20) }]}
+          >
+            <View style={styles.grabHandle} />
+            <View style={styles.drawerHeader}>
+              <Text style={styles.drawerTitle}>MANUAL CONTROLS</Text>
+              <Text style={styles.drawerBadge}>POST-MVP</Text>
+            </View>
 
-        <View style={styles.bottomBar}>
-          {/* `replace`, not `navigate`: it keeps exactly one camera screen in the stack, so
-              the two can never be mounted together. */}
-          <Pressable onPress={() => navigation.replace('ManualCamera')} hitSlop={10} style={styles.manualButton}>
-            <Text style={styles.manualText}>MANUAL</Text>
-            <Text style={styles.manualCaret}>▲</Text>
-          </Pressable>
-
-          <Pressable onPress={takePhoto} disabled={saving} style={styles.shutterRing}>
-            <Animated.View
-              entering={FadeIn}
-              style={[styles.shutterFill, { backgroundColor: skin.shell.accent }, saving && styles.shutterBusy]}
+            <ControlSlider styles={styles} label="ZOOM" value={`${Math.round(zoom * 100)}%`} progress={zoom} onChange={setZoom} />
+            <ControlSlider
+              styles={styles}
+              label="EXPOSURE"
+              value={`${exposureLabel} EV`}
+              note="VISUAL ONLY"
+              progress={exposure}
+              onChange={setExposure}
+              steps={EXPOSURE_STOPS.length}
             />
-          </Pressable>
+            <ControlSlider
+              styles={styles}
+              label="ISO"
+              value={isoLabel}
+              note="VISUAL ONLY"
+              progress={iso}
+              onChange={setIso}
+              steps={ISO_STOPS.length}
+            />
+            <ControlSlider
+              styles={styles}
+              label="FOCUS"
+              value={focusLocked ? 'LOCKED' : 'AUTO'}
+              progress={focus}
+              onChange={setFocus}
+              steps={2}
+            />
 
-          <View style={styles.bottomRight}>
-            <Pressable style={styles.circleButtonSmall} onPress={pickFromLibrary} hitSlop={8}>
-              <Ionicons name="images-outline" size={s(16)} color="#F4ECDC" />
-            </Pressable>
-            <Pressable
-              style={styles.circleButtonSmall}
-              onPress={() => setFacing((current) => (current === 'back' ? 'front' : 'back'))}
-              hitSlop={8}
-            >
-              <Ionicons name="camera-reverse-outline" size={s(17)} color="#F4ECDC" />
-            </Pressable>
-          </View>
-        </View>
+            <View style={styles.drawerFooter}>
+              <Pressable onPress={resetManual} hitSlop={10}>
+                <Text style={styles.footerAction}>RESET</Text>
+              </Pressable>
+              <Pressable onPress={takePhoto} disabled={saving} style={styles.shutterRingSmall}>
+                <View style={[styles.shutterFill, saving && styles.shutterBusy]} />
+              </Pressable>
+              <Pressable onPress={() => setManual(false)} hitSlop={10}>
+                <Text style={[styles.footerAction, styles.footerActionRight]}>AUTO</Text>
+              </Pressable>
+            </View>
+          </Animated.View>
+        ) : (
+          <>
+            <View style={styles.filterStrip}>
+              {FILTERS.map((filter, index) => (
+                <Pressable key={filter.key} style={styles.filterItem} onPress={() => setFilterIndex(index)}>
+                  <View
+                    style={[
+                      styles.filterSwatch,
+                      { backgroundColor: filter.swatch },
+                      index === filterIndex && {
+                        boxShadow: [
+                          { offsetX: 0, offsetY: 0, blurRadius: 0, spreadDistance: 2, color: skin.shell.accent },
+                        ],
+                      },
+                      placeholderHatch('rgba(23,19,15,0.14)'),
+                    ]}
+                  />
+                  <Text style={[styles.filterLabel, index === filterIndex && { color: skin.shell.accent }]}>
+                    {filter.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={[styles.bottomBar, { paddingBottom: insets.bottom + s(20) }]}>
+              <Pressable onPress={() => setManual(true)} hitSlop={10} style={styles.manualButton}>
+                <Text style={styles.manualText}>MANUAL</Text>
+                <Text style={styles.manualCaret}>▲</Text>
+              </Pressable>
+
+              <Pressable onPress={takePhoto} disabled={saving} style={styles.shutterRing}>
+                <View style={[styles.shutterFill, saving && styles.shutterBusy]} />
+              </Pressable>
+
+              <View style={styles.bottomRight}>
+                <Pressable style={styles.circleButtonSmall} onPress={pickFromLibrary} hitSlop={8}>
+                  <Ionicons name="images-outline" size={s(16)} color={CHROME_TEXT} />
+                </Pressable>
+                <Pressable
+                  style={styles.circleButtonSmall}
+                  onPress={() => setFacing((current) => (current === 'back' ? 'front' : 'back'))}
+                  hitSlop={8}
+                >
+                  <Ionicons name="camera-reverse-outline" size={s(17)} color={CHROME_TEXT} />
+                </Pressable>
+              </View>
+            </View>
+          </>
+        )}
       </View>
+    </View>
+  );
+}
+
+function ControlSlider({
+  styles,
+  label,
+  value,
+  note,
+  progress,
+  onChange,
+  steps,
+}: {
+  styles: ReturnType<typeof createStyles>;
+  label: string;
+  value: string;
+  note?: string;
+  progress: number;
+  onChange: (next: number) => void;
+  steps?: number;
+}) {
+  return (
+    <View style={styles.control}>
+      <View style={styles.controlLabelRow}>
+        <View style={styles.controlLabelGroup}>
+          <Text style={styles.controlLabel}>{label}</Text>
+          {note && <Text style={styles.controlNote}>{note}</Text>}
+        </View>
+        <Text style={styles.controlValue}>{value}</Text>
+      </View>
+      <Slider value={progress} onChange={onChange} steps={steps} />
     </View>
   );
 }
@@ -267,9 +406,21 @@ function createStyles(skin: SkinTokens) {
       borderRadius: s(20),
       backgroundColor: SCRIM,
     },
+    modePillActive: {
+      backgroundColor: skin.shell.accent,
+    },
     modePillText: {
       ...mono(9, 0.16),
       color: skin.shell.accent,
+    },
+    modePillTextActive: {
+      color: skin.shell.onAccent,
+    },
+    rawLabel: {
+      ...mono(9, 0.12),
+      color: 'rgba(244,236,220,0.7)',
+      width: s(34),
+      textAlign: 'right',
     },
     viewfinder: {
       flex: 1,
@@ -279,6 +430,7 @@ function createStyles(skin: SkinTokens) {
       borderWidth: 1,
       borderColor: 'rgba(244,236,220,0.18)',
       overflow: 'hidden',
+      justifyContent: 'center',
     },
     thirdLine: {
       position: 'absolute',
@@ -294,13 +446,12 @@ function createStyles(skin: SkinTokens) {
       right: 0,
       height: 1,
     },
+    cropGuideWrap: {
+      width: '100%',
+    },
     cropGuide: {
-      position: 'absolute',
-      top: '50%',
-      left: 0,
-      right: 0,
+      width: '100%',
       aspectRatio: 1,
-      transform: [{ translateY: '-50%' }],
       borderWidth: 1.5,
       borderColor: withAlpha(skin.shell.accent, 0.8),
       borderRadius: s(3),
@@ -310,6 +461,14 @@ function createStyles(skin: SkinTokens) {
     cropGuideLabel: {
       ...mono(8, 0.1),
       color: skin.shell.accent,
+    },
+    readout: {
+      ...mono(8, 0.1),
+      lineHeight: s(13),
+      color: skin.shell.accent,
+      position: 'absolute',
+      left: s(10),
+      bottom: s(10),
     },
     filterStrip: {
       flexDirection: 'row',
@@ -336,7 +495,6 @@ function createStyles(skin: SkinTokens) {
       justifyContent: 'space-between',
       paddingHorizontal: s(24),
       paddingTop: s(18),
-      paddingBottom: s(20),
     },
     manualButton: {
       alignItems: 'center',
@@ -358,9 +516,18 @@ function createStyles(skin: SkinTokens) {
       borderColor: CHROME_TEXT,
       padding: s(5),
     },
+    shutterRingSmall: {
+      width: s(68),
+      height: s(68),
+      borderRadius: s(34),
+      borderWidth: 3,
+      borderColor: CHROME_TEXT,
+      padding: s(5),
+    },
     shutterFill: {
       flex: 1,
       borderRadius: s(38),
+      backgroundColor: skin.shell.accent,
     },
     shutterBusy: {
       opacity: 0.4,
@@ -370,6 +537,73 @@ function createStyles(skin: SkinTokens) {
       gap: s(8),
       width: s(88),
       justifyContent: 'flex-end',
+    },
+    drawer: {
+      borderTopLeftRadius: s(16),
+      borderTopRightRadius: s(16),
+      backgroundColor: 'rgba(23,19,15,0.94)',
+      paddingTop: s(14),
+      paddingHorizontal: s(18),
+      gap: s(12),
+    },
+    grabHandle: {
+      width: s(42),
+      height: s(4),
+      borderRadius: s(2),
+      backgroundColor: 'rgba(244,236,220,0.28)',
+      alignSelf: 'center',
+    },
+    drawerHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    drawerTitle: {
+      ...mono(9, 0.14),
+      color: skin.shell.accent,
+    },
+    drawerBadge: {
+      ...mono(8, 0.12),
+      color: 'rgba(244,236,220,0.4)',
+    },
+    control: {
+      gap: s(2),
+    },
+    controlLabelRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    controlLabelGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: s(6),
+    },
+    controlLabel: {
+      ...mono(8.5, 0.12),
+      color: 'rgba(244,236,220,0.65)',
+    },
+    controlNote: {
+      ...mono(7, 0.1),
+      color: 'rgba(244,236,220,0.32)',
+    },
+    controlValue: {
+      ...mono(8.5, 0.12),
+      color: CHROME_TEXT,
+    },
+    drawerFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: s(4),
+    },
+    footerAction: {
+      ...mono(9, 0.12),
+      color: 'rgba(244,236,220,0.55)',
+      width: s(48),
+    },
+    footerActionRight: {
+      textAlign: 'right',
     },
     gate: {
       flex: 1,

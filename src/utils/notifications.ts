@@ -19,6 +19,10 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return result.granted;
 }
 
+export async function cancelDailyReminder(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(REMINDER_NOTIFICATION_ID).catch(() => {});
+}
+
 export async function scheduleDailyReminder(hour: number, minute: number): Promise<void> {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {

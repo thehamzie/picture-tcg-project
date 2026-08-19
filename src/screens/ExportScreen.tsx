@@ -48,14 +48,17 @@ type ExportNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Expor
 type ExportRouteProp = RouteProp<RootStackParamList, 'Export'>;
 
 /**
- * Layout width for the off-screen capture, picked so `width × pixelRatio` lands on the 1080px
- * output we want. Capped so a 1× device doesn't try to lay out a 1080pt view — the very thing
- * that made snapshots run out of memory.
+ * Layout width for the capture. Chosen so `width × pixelRatio` lands near the 1080px output
+ * we want, and capped well below it so no device tries to lay out a canvas measured in
+ * thousands of points — that is what previously exhausted memory during the snapshot.
  */
 const CAPTURE_LAYOUT_WIDTH = Math.min(540, Math.round(EXPORT_WIDTH / PixelRatio.get()));
 
-/** Time for the off-screen canvas to lay out and its photos to decode before snapshotting. */
-const CAPTURE_SETTLE_MS = 350;
+/** Tallest the on-screen preview is allowed to get, so the controls stay reachable. */
+const MAX_PREVIEW_HEIGHT = 330;
+
+/** Time for the canvas to settle after `capturing` flips, before snapshotting. */
+const CAPTURE_SETTLE_MS = 220;
 
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -129,19 +132,27 @@ export default function ExportScreen() {
   );
 
   /**
-   * Rasterizes the export.
+   * Rasterizes the export from the on-screen preview.
    *
-   * The capture target is mounted off-screen only for the duration of the snapshot, laid out
-   * at `CAPTURE_LAYOUT_WIDTH` — which is chosen so `layoutWidth × pixelRatio ≈ 1080`, the
-   * output size we actually want. An earlier version laid the canvas out at 1080 *points* and
-   * scaled it down with a transform for the preview; on a 3× device that is a 3240px-wide
-   * backing store (~50-75MB for a 4:5 or 9:16 frame), which is enough to take the process
-   * down mid-snapshot. Rendering at ~360pt and letting the device's own pixel ratio supply
-   * the resolution costs a ninth of the memory for the same 1080px result.
+   * This has been through three shapes, and the current one is deliberately the least clever:
    *
-   * `capturing` is flipped first so the subtree also drops its blend layers, and a couple of
-   * frames plus a short settle are yielded so layout commits and the photos decode before the
-   * snapshot is taken.
+   *   1. A ~200pt preview upscaled via captureRef's `width`/`height`. Soft output.
+   *   2. The canvas laid out at 1080 *points* and transform-scaled down for display. On a 3×
+   *      device that is a 3240px-wide backing store — ~50-75MB for a 4:5 or 9:16 frame — which
+   *      is enough to take the process down mid-snapshot.
+   *   3. A separate copy mounted off-screen at `left: -10000`. Lighter, but snapshotting a
+   *      view that is outside the window is itself unreliable: iOS's view-hierarchy drawing
+   *      has no guarantee for views the compositor never had reason to render.
+   *
+   * Now: the canvas is laid out at `CAPTURE_LAYOUT_WIDTH` (~360pt, so `layout × pixelRatio`
+   * still lands near 1080px) and shrunk for display with a transform on the captured node
+   * itself. That transform is safe — both backends rasterize from the view's *layout* bounds
+   * (`view.bounds` on iOS, `getWidth()/getHeight()` on Android), and a view's own transform
+   * affects its frame within its parent, not the content it draws. Shape 2's mistake was the
+   * 1080-point layout, not the scaling.
+   *
+   * `capturing` is flipped first so the subtree drops its blend layers, and a couple of frames
+   * plus a short settle are yielded so that re-render commits before the snapshot.
    */
   const renderToFile = useCallback(async (): Promise<string | null> => {
     setCapturing(true);
@@ -152,6 +163,9 @@ export default function ExportScreen() {
       if (!captureViewRef.current) return null;
       const uri = await captureRef(captureViewRef, { format: 'png', quality: 1, result: 'tmpfile' });
       return uri ? toFileUri(uri) : null;
+    } catch (error) {
+      console.error('[share] captureRef failed', error);
+      throw error;
     } finally {
       setCapturing(false);
     }
@@ -262,8 +276,12 @@ export default function ExportScreen() {
 
   if (!subject || !template) return <View style={styles.screen} />;
 
-  const previewWidth = s(230);
-  const previewHeight = previewWidth / ASPECT_RATIOS[aspect];
+  const ratio = ASPECT_RATIOS[aspect];
+  // Display size: as wide as fits without the preview growing taller than the stage allows —
+  // a 9:16 frame has to come down a lot more than a square one.
+  const previewWidth = Math.min(s(250), s(MAX_PREVIEW_HEIGHT) * ratio);
+  const previewHeight = previewWidth / ratio;
+  const previewScale = previewWidth / CAPTURE_LAYOUT_WIDTH;
   const isCardSubject = subject.kind === 'card';
   const canvasOverlays = saveRawInstead ? BARE_OVERLAYS : overlays;
 
@@ -280,25 +298,20 @@ export default function ExportScreen() {
       </View>
 
       <View style={styles.stage}>
+        {/* The preview *is* the capture target — laid out at export size, scaled for display.
+            See `renderToFile` for why the transform is safe. */}
         <View style={{ width: previewWidth, height: previewHeight }}>
-          <ShareCanvas
-            subject={subject}
-            template={template}
-            aspect={aspect}
-            width={previewWidth}
-            overlays={canvasOverlays}
-          />
-        </View>
-      </View>
-
-      {/* The capture target: the same canvas at export resolution, mounted off-screen and
-          only while a snapshot is in flight, so it costs nothing at rest. `ShareCanvas` is
-          fully width-parameterised, so this is the identical composition — not a second
-          implementation that could drift from the preview. */}
-      {capturing && (
-        <View style={styles.offscreen} pointerEvents="none">
-          <View ref={captureViewRef} collapsable={false}>
-            <CaptureProvider capturing>
+          <View
+            ref={captureViewRef}
+            collapsable={false}
+            style={{
+              width: CAPTURE_LAYOUT_WIDTH,
+              height: CAPTURE_LAYOUT_WIDTH / ratio,
+              transform: [{ scale: previewScale }],
+              transformOrigin: 'top left',
+            }}
+          >
+            <CaptureProvider capturing={capturing}>
               <ShareCanvas
                 subject={subject}
                 template={template}
@@ -309,7 +322,7 @@ export default function ExportScreen() {
             </CaptureProvider>
           </View>
         </View>
-      )}
+      </View>
 
       <ScrollView
         style={styles.controls}
@@ -383,8 +396,10 @@ export default function ExportScreen() {
         {isCardSubject ? (
           <Pressable style={styles.rawRow} onPress={() => setSaveRawInstead((value) => !value)}>
             <View style={styles.rawCopy}>
-              <Text style={styles.rawTitle}>Save raw photo instead</Text>
-              <Text style={styles.rawSubtitle}>Unstyled, full resolution</Text>
+              <Text style={styles.rawTitle}>Use the raw photo instead</Text>
+              <Text style={styles.rawSubtitle}>
+                Unstyled, full resolution — applies to both Save and Share
+              </Text>
             </View>
             <PillSwitch value={saveRawInstead} skin={skin} />
           </Pressable>
@@ -500,12 +515,6 @@ function createStyles(skin: SkinTokens) {
     headerAction: {
       ...body(11, 600),
       color: skin.shell.accent,
-    },
-    offscreen: {
-      position: 'absolute',
-      left: -10000,
-      top: 0,
-      opacity: 1,
     },
     stage: {
       flex: 1,

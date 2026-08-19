@@ -33,9 +33,9 @@ export type RootStackParamList = {
   Permissions: PermissionsParams | undefined;
   Main: undefined;
   Camera: undefined;
-  ManualCamera: undefined;
   Reveal: RevealParams;
   CardDetail: CardDetailParams;
   Export: ExportParams;
   SkinSelector: undefined;
+  Settings: undefined;
 };

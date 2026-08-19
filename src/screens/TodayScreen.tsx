@@ -64,8 +64,8 @@ export default function TodayScreen() {
           <Text style={styles.headerTitle}>Today</Text>
         </View>
         <View style={styles.headerRight}>
-          <Pressable onPress={() => navigation.navigate('SkinSelector')} hitSlop={12} style={styles.skinButton}>
-            <Ionicons name="color-palette-outline" size={s(17)} color={skin.shell.textSecondary} />
+          <Pressable onPress={() => navigation.navigate('Settings')} hitSlop={12} style={styles.skinButton}>
+            <Ionicons name="settings-outline" size={s(17)} color={skin.shell.textSecondary} />
           </Pressable>
           <Text style={styles.streakCount}>{loading ? '—' : streak}</Text>
           <Text style={styles.streakLabel}>DAY STREAK</Text>

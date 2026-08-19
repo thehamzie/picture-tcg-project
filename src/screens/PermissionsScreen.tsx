@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import HardButton from '../components/HardButton';
-import { setOnboardingComplete } from '../db/settingsRepository';
+import { setOnboardingComplete, setReminder } from '../db/settingsRepository';
 import type { RootStackParamList } from '../navigation/types';
 import { readableInk, withAlpha } from '../theme/color';
 import type { SkinTokens } from '../theme/skins';
@@ -104,6 +104,9 @@ export default function PermissionsScreen() {
       } else if (step.key === 'notifications') {
         const granted = await requestNotificationPermission();
         if (granted) await scheduleDailyReminder(reminderHour, reminderMinute);
+        // Recorded so Settings can show and change what's actually scheduled — previously the
+        // chosen time was scheduled and then immediately forgotten.
+        await setReminder(db, { enabled: granted, hour: reminderHour, minute: reminderMinute });
         advance();
       } else {
         await setOnboardingComplete(db);
