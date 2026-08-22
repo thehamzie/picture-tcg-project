@@ -160,9 +160,11 @@ export async function writeBackupArchive(
     })),
   };
 
+  clearOldArchives();
   const destination = freshCacheFile(`daily-pull-${stamp()}.${ARCHIVE_EXTENSION}`);
   destination.create();
   const handle = destination.open();
+  let wroteCleanly = false;
   try {
     const headerBytes = toAsciiBytes(JSON.stringify(header));
     handle.writeBytes(toAsciiBytes(ARCHIVE_MAGIC));
@@ -171,12 +173,29 @@ export async function writeBackupArchive(
 
     let done = 0;
     for (const entry of entries) {
-      handle.writeBytes(await entry.file.bytes());
+      const bytes = await entry.file.bytes();
+      // The header already committed this photo's length. If the file changed underneath us
+      // between sizing and reading, every photo after it would be misaligned on the way back
+      // in — so fail here rather than write an archive that restores as garbage.
+      if (bytes.length !== entry.size) {
+        throw new Error(`The photo for ${entry.card.date} changed while the backup was being written.`);
+      }
+      handle.writeBytes(bytes);
       done += 1;
       onProgress?.({ done, total: entries.length });
     }
+    wroteCleanly = true;
   } finally {
     handle.close();
+    // A half-written archive is worse than none: it looks like a backup and restores as an
+    // error. Don't leave one lying in the cache to be picked later.
+    if (!wroteCleanly) {
+      try {
+        destination.delete();
+      } catch {
+        /* Best effort. */
+      }
+    }
   }
 
   return { uri: destination.uri, cardCount: entries.length, skipped };
@@ -189,6 +208,8 @@ export type RestoreResult = {
   failed: string[];
   /** Set when the user cancelled the file picker rather than choosing a file. */
   cancelled?: boolean;
+  /** Set when the archive ran out partway through — whatever was read before that is kept. */
+  truncated?: boolean;
 };
 
 /**
@@ -198,6 +219,12 @@ export type RestoreResult = {
  * additive — someone recovering a backup after using the app for a week should not lose that
  * week, and there is no way to ask "which of these two versions of Tuesday did you want" that
  * is worth the confusion.
+ *
+ * Card numbers are *not* carried across: `cards.id` is AUTOINCREMENT, and forcing old ids risks
+ * colliding with rows already present. In the case that matters — restoring onto a fresh
+ * install — the archive is ordered by date and inserted in that order, so the numbers come out
+ * as they were. Restoring into a binder that already has cards renumbers the incoming ones,
+ * which is the honest outcome of merging two collections.
  */
 export async function restoreFromArchive(
   db: SQLiteDatabase,
@@ -236,9 +263,25 @@ export async function restoreFromArchive(
     let alreadyPresent = 0;
 
     for (const [index, entry] of header.cards.entries()) {
+      if (!Number.isInteger(entry.photoBytes) || entry.photoBytes <= 0) {
+        throw new Error('That backup file is damaged and could not be read.');
+      }
+
       // The photos are laid out back to back, so every one has to be consumed in order even
       // when its record is skipped — otherwise the read head lands mid-photo on the next card.
       const bytes = handle.readBytes(entry.photoBytes);
+
+      // A short read means the file is truncated. Everything after this point would be read
+      // from the wrong offset, so stop and report what was recovered rather than importing a
+      // run of corrupt photos.
+      if (bytes.length !== entry.photoBytes) {
+        return {
+          restored,
+          alreadyPresent,
+          failed: [...failed, ...header.cards.slice(index).map((card) => card.date)],
+          truncated: true,
+        };
+      }
 
       if (existing.has(entry.date)) {
         alreadyPresent += 1;
@@ -338,13 +381,38 @@ function stamp(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** A named file in the cache's exports folder, with any previous copy cleared out. */
-function freshCacheFile(name: string): File {
+function exportsDirectory(): Directory {
   const directory = new Directory(Paths.cache, 'exports');
   if (!directory.exists) directory.create({ intermediates: true });
-  const file = new File(directory, name);
+  return directory;
+}
+
+/** A named file in the cache's exports folder, with any previous copy cleared out. */
+function freshCacheFile(name: string): File {
+  const file = new File(exportsDirectory(), name);
   if (file.exists) file.delete();
   return file;
+}
+
+/**
+ * Removes previously written archives.
+ *
+ * These are named by date, so a backup taken on a new day doesn't replace the old one — and an
+ * archive is roughly the size of the whole collection. Without this, backing up monthly quietly
+ * accumulates gigabytes of cache. The archive that has just been handed to the share sheet is
+ * the only one anybody needs.
+ */
+function clearOldArchives() {
+  try {
+    for (const entry of exportsDirectory().list()) {
+      if (entry instanceof File && entry.uri.endsWith(`.${ARCHIVE_EXTENSION}`)) {
+        entry.delete();
+      }
+    }
+  } catch (error) {
+    // Cache hygiene is never worth failing a backup over.
+    console.warn('[backup] could not clear old archives', error);
+  }
 }
 
 /**

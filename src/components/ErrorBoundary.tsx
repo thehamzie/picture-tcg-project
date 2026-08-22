@@ -1,6 +1,8 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { reportError } from '../utils/reporting';
+
 // A last-resort screen for JavaScript errors.
 //
 // Without this, an uncaught render error in a release build unmounts the whole tree and the
@@ -25,6 +27,9 @@ export default class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     this.setState({ componentStack: info.componentStack ?? null });
     console.error('[ErrorBoundary] uncaught error', error, info.componentStack);
+    // The screen below shows the user what happened; this is the copy that reaches somewhere it
+    // can be read. A no-op unless reporting is configured and switched on.
+    reportError(error, { componentStack: info.componentStack ?? 'unavailable' });
   }
 
   render() {

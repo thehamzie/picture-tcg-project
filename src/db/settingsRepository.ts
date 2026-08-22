@@ -65,6 +65,22 @@ export async function setReminder(db: SQLiteDatabase, reminder: ReminderSetting)
   ]);
 }
 
+/**
+ * Whether the user lets crash reports leave the device.
+ *
+ * Defaults to on, because a crash nobody can read is a crash nobody fixes — but it is shown
+ * plainly in Settings next to the line about cards staying on the phone, rather than buried, and
+ * it can be turned off mid-session.
+ */
+export async function getCrashReportsEnabled(db: SQLiteDatabase): Promise<boolean> {
+  const value = await getSetting(db, 'crash_reports');
+  return value === null ? true : value === '1';
+}
+
+export async function setCrashReportsEnabled(db: SQLiteDatabase, enabled: boolean): Promise<void> {
+  await setSetting(db, 'crash_reports', enabled ? '1' : '0');
+}
+
 export async function getSkinId(db: SQLiteDatabase): Promise<SkinId> {
   const value = await getSetting(db, 'skin_id');
   return (value as SkinId | null) ?? DEFAULT_SKIN_ID;

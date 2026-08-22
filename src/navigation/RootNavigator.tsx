@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { getOnboardingComplete } from '../db/settingsRepository';
+import { getCrashReportsEnabled, getOnboardingComplete } from '../db/settingsRepository';
+import { setReportingEnabled } from '../utils/reporting';
 import CameraScreen from '../screens/CameraScreen';
 import CardDetailScreen from '../screens/CardDetailScreen';
 import DevelopScreen from '../screens/DevelopScreen';
@@ -26,6 +27,11 @@ export default function RootNavigator() {
     getOnboardingComplete(db).then((complete) => {
       if (!cancelled) setInitialRouteName(complete ? 'Main' : 'Onboarding');
     });
+    // Reporting starts before the database is open, so the user's choice is applied here, at
+    // the first point it can be read. Until then `beforeSend` uses the default (on).
+    getCrashReportsEnabled(db)
+      .then(setReportingEnabled)
+      .catch(() => {});
     return () => {
       cancelled = true;
     };

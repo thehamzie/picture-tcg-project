@@ -14,6 +14,11 @@ import { migrateDbIfNeeded } from './src/db/schema';
 import RootNavigator from './src/navigation/RootNavigator';
 import { SkinProvider, useSkin } from './src/theme/SkinContext';
 import { fonts, FONT_ASSETS } from './src/theme/typography';
+import { initReporting } from './src/utils/reporting';
+
+// Started before anything renders, so an error during startup is still caught. Does nothing
+// unless a DSN is configured — see src/utils/reporting.ts.
+initReporting();
 
 // The splash is held until Archivo / Archivo Black / DM Mono are resident, so no screen ever
 // renders a frame in the system fallback face — the heavy-caps display type is load-bearing

@@ -1,5 +1,9 @@
 # AGENTS.md
 
+> **Picking this up again? Start with [`NEXT.md`](./NEXT.md).** This file is the record of what
+> was built and why; `NEXT.md` is the record of what hasn't been, ranked, plus the standing
+> constraints worth reading before changing related code.
+
 ## Progress
 
 - **Step 1 — rename + skin/token scaffold.** Everdot → Daily Pull rename done across
@@ -715,6 +719,30 @@ app.
     yet, and the front camera has different lenses. Flipping the camera clears the lens and zoom.
   - Tapping anywhere above the manual drawer closes it, via a `flex: 1` Pressable sitting
     between the top bar and the drawer in `chrome`'s column.
+- **Crash reporting, and a hardening pass on backup.** Camera work confirmed good on device;
+  everything downstream of it still has zero device coverage, which is what this pass targets.
+  - **Sentry** (`@sentry/react-native`, config plugin auto-added). `src/utils/reporting.ts` is
+    deliberately conservative, because "nothing leaves the device" is this app's pitch: **no DSN
+    means no client is created at all** (the state in development), the user's choice is honoured
+    in `beforeSend` rather than only at `init` so turning it off stops events mid-session,
+    console breadcrumbs are dropped entirely (they routinely carry photo paths), and `scrub()`
+    replaces every `file://…` in the event — a card path carries its date, which is user data.
+    `tracesSampleRate: 0`, no session tracking, no replay. `ErrorBoundary.componentDidCatch`
+    reports; Settings gains a disclosed **Send crash reports** switch, shown only when a DSN is
+    configured. DSN slot is `expo.extra.sentryDsn` in `app.json`.
+    Note for EAS: `@sentry/cli`'s postinstall was blocked by npm's allow-scripts, which only
+    affects source-map upload at build time — the JS bundle builds fine.
+  - **Backup fixes found by reading**, all real: a **short read** during restore now stops and
+    reports rather than importing a run of corrupt photos from a desynced offset (the archive is
+    a flat byte stream, so one bad length poisons everything after it); a photo whose size
+    changes between sizing and writing now fails the backup instead of producing an archive that
+    restores as garbage; a half-written archive is deleted rather than left in the cache looking
+    like a backup; and **old archives are now cleared** — they are named by date, so backing up
+    monthly quietly accumulated one full-collection-sized file per backup.
+  - Confirmed correct while reviewing the share path: `captureRef` without `width`/`height`
+    returns "the original pixel size" (its own docs), i.e. layout × pixelRatio — so the 360pt
+    capture layout genuinely yields ~1080px, and passing explicit dimensions would *resize from
+    the view bound* rather than improve it. Left alone.
 - **Process note.** `src/camera/filters.ts` was briefly corrupted by editing it with
   `Get-Content` + `Set-Content`: `Get-Content` reads as ANSI by default, so every em dash and
   curly quote round-tripped into mojibake. Repaired, and the whole of `src/` was swept for

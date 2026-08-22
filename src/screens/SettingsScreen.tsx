@@ -11,10 +11,13 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 
 import { useCards } from '../hooks/useCards';
 import {
+  getCrashReportsEnabled,
   getReminder,
+  setCrashReportsEnabled,
   setReminder as persistReminder,
   type ReminderSetting,
 } from '../db/settingsRepository';
+import { isReportingAvailable, setReportingEnabled } from '../utils/reporting';
 import type { RootStackParamList } from '../navigation/types';
 import { withAlpha } from '../theme/color';
 import { linearGradient } from '../theme/gradients';
@@ -56,6 +59,7 @@ export default function SettingsScreen() {
   const styles = useMemo(() => createStyles(skin), [skin]);
 
   const [reminder, setReminderState] = useState<ReminderSetting | null>(null);
+  const [crashReports, setCrashReports] = useState(true);
   const [busy, setBusy] = useState(false);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
 
@@ -64,10 +68,21 @@ export default function SettingsScreen() {
     getReminder(db).then((value) => {
       if (!cancelled) setReminderState(value);
     });
+    getCrashReportsEnabled(db).then((value) => {
+      if (!cancelled) setCrashReports(value);
+    });
     return () => {
       cancelled = true;
     };
   }, [db]);
+
+  /** Applied immediately as well as persisted, so turning it off stops events mid-session. */
+  async function applyCrashReports(next: boolean) {
+    haptics.tap();
+    setCrashReports(next);
+    setReportingEnabled(next);
+    await setCrashReportsEnabled(db, next);
+  }
 
   const applyReminder = useCallback(
     async (next: ReminderSetting) => {
@@ -178,7 +193,12 @@ export default function SettingsScreen() {
       const parts = [`${result.restored} restored`];
       if (result.alreadyPresent > 0) parts.push(`${result.alreadyPresent} already in your binder`);
       if (result.failed.length > 0) parts.push(`${result.failed.length} could not be read`);
-      Alert.alert(result.restored > 0 ? 'Restored' : 'Nothing to restore', `${parts.join(', ')}.`);
+      Alert.alert(
+        result.truncated ? 'Partly restored' : result.restored > 0 ? 'Restored' : 'Nothing to restore',
+        result.truncated
+          ? `${parts.join(', ')}. The backup file ends early — it may not have finished copying.`
+          : `${parts.join(', ')}.`
+      );
     } catch (error) {
       Alert.alert('Could not restore', describe(error));
       console.error('[settings] restore failed', error);
@@ -340,6 +360,25 @@ export default function SettingsScreen() {
             <Ionicons name="document-text-outline" size={s(19)} color={skin.shell.accent} />
           </Pressable>
         </View>
+
+        {/* Only shown when a build can actually report. Offering a switch that does nothing
+            would be worse than not mentioning it. */}
+        {isReportingAvailable() && (
+          <>
+            <Text style={styles.sectionLabel}>PRIVACY</Text>
+            <View style={styles.card}>
+              <Pressable style={styles.row} onPress={() => applyCrashReports(!crashReports)}>
+                <View style={styles.rowCopy}>
+                  <Text style={styles.rowTitle}>Send crash reports</Text>
+                  <Text style={styles.rowSubtitle}>
+                    Just the error and the phone model. Never your photos, titles or tags.
+                  </Text>
+                </View>
+                <PillSwitch value={crashReports} skin={skin} />
+              </Pressable>
+            </View>
+          </>
+        )}
 
         <Text style={styles.sectionLabel}>ABOUT</Text>
         <View style={styles.card}>

@@ -50,7 +50,12 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "expo-font"
-    ]
+      "expo-font",
+      "@sentry/react-native"
+    ],
+    "extra": {
+      "//sentryDsn": "Paste the project DSN from sentry.io here to turn crash reporting on. Left empty, no Sentry client is created and nothing is sent — which is the correct state for development. See src/utils/reporting.ts.",
+      "sentryDsn": ""
+    }
   }
 }
