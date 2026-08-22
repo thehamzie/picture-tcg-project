@@ -162,7 +162,12 @@ function SetRow({
               </View>
             )}
             {onShare && (
-              <Pressable onPress={onShare} hitSlop={12}>
+              <Pressable
+                onPress={onShare}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel={`Share set ${set.setNumber}`}
+              >
                 <Ionicons name="share-outline" size={s(16)} color={accent} />
               </Pressable>
             )}

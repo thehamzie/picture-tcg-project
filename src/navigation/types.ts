@@ -14,8 +14,24 @@ export type PermissionsParams = {
   reminderMinute: number;
 };
 
+export type DevelopParams = {
+  /** The raw capture, still in its temporary location — never a stored card photo. */
+  sourceUri: string;
+  /**
+   * The size the capture API reported for this photo. Compared against the decoded pixel
+   * dimensions to work out whether the image actually needs turning — see
+   * `camera/exif.ts#resolveOrientation` for why the EXIF tag alone can't be trusted for that.
+   */
+  sourceWidth: number;
+  sourceHeight: number;
+};
+
 export type RevealParams = {
+  /** The developed photo, already written to permanent storage by the camera. */
   photoUri: string;
+  thumbUri: string;
+  /** Which filter was baked in, carried through so the row records it. */
+  filterId: string | null;
 };
 
 /**
@@ -33,6 +49,7 @@ export type RootStackParamList = {
   Permissions: PermissionsParams | undefined;
   Main: undefined;
   Camera: undefined;
+  Develop: DevelopParams;
   Reveal: RevealParams;
   CardDetail: CardDetailParams;
   Export: ExportParams;

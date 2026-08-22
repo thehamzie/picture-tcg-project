@@ -27,6 +27,7 @@ import { useSkin } from '../theme/SkinContext';
 import { theme, vibeLabels, VIBE_ORDER, type VibeType } from '../theme/theme';
 import { body, mono, s } from '../theme/typography';
 import { formatMonoDateWithDay, todayDateKey } from '../utils/date';
+import * as haptics from '../utils/haptics';
 import { HOLO_STREAK_MILESTONE_DAYS, resolveIsHolo } from '../utils/holo';
 import { computeDayStreak } from '../utils/streak';
 import { randomTitlePhrase } from '../utils/titlePhrases';
@@ -53,7 +54,7 @@ export default function RevealScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(skin), [skin]);
 
-  const { photoUri } = route.params;
+  const { photoUri, thumbUri, filterId } = route.params;
   const today = todayDateKey();
 
   const [flipped, setFlipped] = useState(false);
@@ -81,8 +82,13 @@ export default function RevealScreen() {
 
   function handleFlip() {
     if (flipped) return;
-    setResolvedHolo(resolveIsHolo(openedStreak));
+    const holo = resolveIsHolo(openedStreak);
+    setResolvedHolo(holo);
     setFlipped(true);
+    // A rare pull gets the heavier notification rather than the same tap as a common one — the
+    // one place in the app where the haptic itself carries information.
+    if (holo) haptics.success();
+    else haptics.thud();
     flip.value = withTiming(1, { duration: FLIP_DURATION_MS, easing: Easing.inOut(Easing.cubic) });
   }
 
@@ -93,11 +99,14 @@ export default function RevealScreen() {
       await insertCard(db, {
         date: today,
         photoUri,
+        thumbUri,
+        filterId,
         title: title.trim() ? title.trim() : null,
         vibeType: selectedVibe,
         isHolo: resolvedHolo,
       });
       await refresh();
+      haptics.success();
       navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
     } catch (error) {
       Alert.alert('Something went wrong', 'Could not save your card. Please try again.');
@@ -113,7 +122,13 @@ export default function RevealScreen() {
         NO. {nextCardNumber} · {formatMonoDateWithDay(today)}
       </Text>
 
-      <Pressable style={styles.stage} onPress={handleFlip} disabled={flipped}>
+      <Pressable
+        style={styles.stage}
+        onPress={handleFlip}
+        disabled={flipped}
+        accessibilityRole="button"
+        accessibilityLabel={flipped ? "Today's card" : 'Turn the card over'}
+      >
         <View style={{ width: CARD_WIDTH, height: CARD_WIDTH / theme.cardShape.aspectRatio }}>
           <Animated.View style={[styles.face, backStyle]}>
             <FaceDownCard width={CARD_WIDTH} showLabel={false} float={!flipped} />
@@ -155,7 +170,13 @@ export default function RevealScreen() {
                 <Pressable
                   key={vibe}
                   style={styles.vibeColumn}
-                  onPress={() => setSelectedVibe((current) => (current === vibe ? null : vibe))}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`${vibeLabels[vibe]} tag`}
+                  onPress={() => {
+                    haptics.selection();
+                    setSelectedVibe((current) => (current === vibe ? null : vibe));
+                  }}
                 >
                   <View
                     style={[
@@ -189,7 +210,13 @@ export default function RevealScreen() {
               placeholderTextColor={withAlpha(skin.shell.textPrimary, 0.32)}
               maxLength={TITLE_MAX_LENGTH}
             />
-            <Pressable style={styles.shuffleButton} onPress={() => setTitle(randomTitlePhrase())} hitSlop={8}>
+            <Pressable
+              style={styles.shuffleButton}
+              onPress={() => setTitle(randomTitlePhrase())}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Suggest a title"
+            >
               <Ionicons name="shuffle" size={s(16)} color={skin.shell.accent} />
             </Pressable>
           </View>

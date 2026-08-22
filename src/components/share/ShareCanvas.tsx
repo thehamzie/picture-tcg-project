@@ -38,11 +38,14 @@ export type TemplateId =
   | 'pageCard'
   | 'poster'
   | 'minimal'
+  | 'story'
   | 'grid'
   | 'fan'
   | 'filmstrip'
   | 'stack'
-  | 'contact';
+  | 'contact'
+  | 'mosaic'
+  | 'tiles';
 export type AspectId = '1:1' | '4:5' | '9:16';
 
 export type ShareOverlays = {
@@ -67,18 +70,37 @@ export const TEMPLATES: {
   label: string;
   hint: string;
   subject: 'card' | 'set';
+  /** Marks a template laid out for a specific ratio, so the picker can say so. */
+  bestAspect?: AspectId;
 }[] = [
   { id: 'classic', label: 'CARD', hint: 'The card, centred', subject: 'card' },
   { id: 'minimal', label: 'QUIET', hint: 'Photo, wide margins, one line', subject: 'card' },
   { id: 'bleed', label: 'BLEED', hint: 'Photo edge to edge', subject: 'card' },
+  { id: 'story', label: 'STORY', hint: 'Built for a full-screen story', subject: 'card', bestAspect: '9:16' },
   { id: 'poster', label: 'POSTER', hint: 'Photo above, title below', subject: 'card' },
   { id: 'pageCard', label: 'ON PAGE', hint: 'Card laid on the binder leaf', subject: 'card' },
+  { id: 'mosaic', label: 'MOSAIC', hint: 'Seven photos, side by side', subject: 'set' },
+  { id: 'tiles', label: 'TILES', hint: 'Two columns, edge to edge', subject: 'set', bestAspect: '9:16' },
   { id: 'grid', label: 'PAGE', hint: 'The whole week as one leaf', subject: 'set' },
   { id: 'contact', label: 'SHEET', hint: 'Contact sheet, seven frames', subject: 'set' },
   { id: 'filmstrip', label: 'STRIP', hint: 'The week as a filmstrip', subject: 'set' },
   { id: 'stack', label: 'STACK', hint: 'Cards cascading down', subject: 'set' },
   { id: 'fan', label: 'FAN', hint: 'Seven cards fanned open', subject: 'set' },
 ];
+
+/**
+ * Extra top/bottom room on a 9:16 export.
+ *
+ * Instagram and every other story surface paint their own controls over the top and bottom of
+ * the frame — the avatar and close button up top, the reply bar and swipe-up hint below.
+ * Anything laid out flush to those edges gets covered. Templates that carry type at the edge
+ * inset it by this much on 9:16, and by nothing on the feed ratios, where the whole frame is
+ * visible.
+ */
+function storyInset(aspect: AspectId, height: number) {
+  if (aspect !== '9:16') return { top: 0, bottom: 0 };
+  return { top: height * 0.075, bottom: height * 0.1 };
+}
 
 /** The canvas width every export is rasterized at. 1080 is Instagram's native short edge. */
 export const EXPORT_WIDTH = 1080;
@@ -102,7 +124,8 @@ export default function ShareCanvas({ subject, template, aspect, width, overlays
   if (subject.kind === 'card') {
     const { card, setNumber } = subject;
     const props = { frame, card, setNumber, overlays, styles, skin, u };
-    if (template === 'bleed') return <BleedTemplate {...props} />;
+    if (template === 'bleed') return <BleedTemplate {...props} aspect={aspect} />;
+    if (template === 'story') return <StoryTemplate {...props} aspect={aspect} />;
     if (template === 'poster') return <PosterTemplate {...props} />;
     if (template === 'minimal') return <MinimalTemplate {...props} />;
     if (template === 'pageCard') return <PageCardTemplate {...props} aspect={aspect} />;
@@ -115,6 +138,8 @@ export default function ShareCanvas({ subject, template, aspect, width, overlays
   if (template === 'filmstrip') return <FilmstripTemplate {...props} />;
   if (template === 'stack') return <StackTemplate {...props} />;
   if (template === 'contact') return <ContactSheetTemplate {...props} />;
+  if (template === 'mosaic') return <MosaicTemplate {...props} aspect={aspect} />;
+  if (template === 'tiles') return <TilesTemplate {...props} aspect={aspect} />;
   return <GridTemplate {...props} aspect={aspect} />;
 }
 
@@ -175,9 +200,18 @@ function ClassicTemplate({ frame, card, setNumber, overlays, styles, u }: CardTe
   );
 }
 
-function BleedTemplate({ frame, card, setNumber, overlays, styles, skin, u }: CardTemplateProps) {
+function BleedTemplate({
+  frame,
+  card,
+  setNumber,
+  overlays,
+  styles,
+  skin,
+  aspect,
+}: CardTemplateProps & { aspect: AspectId }) {
   const displayTitle = card.title?.trim() ? card.title.trim() : formatCardDateLabel(card.date);
   const showCaption = overlays.date || overlays.title || overlays.vibe || overlays.setNumber;
+  const safe = storyInset(aspect, frame.height);
 
   return (
     <View style={[styles.bleedCanvas, frame]}>
@@ -190,11 +224,16 @@ function BleedTemplate({ frame, card, setNumber, overlays, styles, skin, u }: Ca
           <View
             style={[
               styles.bleedScrim,
-              { height: frame.height * 0.42 },
+              { height: frame.height * 0.42 + safe.bottom },
               linearGradient(['transparent', 'rgba(0,0,0,0.72)'], 180),
             ]}
           />
-          <View style={[styles.bleedCaption, { padding: frame.width * 0.075 }]}>
+          <View
+            style={[
+              styles.bleedCaption,
+              { padding: frame.width * 0.075, paddingBottom: frame.width * 0.075 + safe.bottom },
+            ]}
+          >
             {overlays.title && (
               <Text style={styles.bleedTitle} numberOfLines={3}>
                 {displayTitle}
@@ -297,6 +336,67 @@ function MinimalTemplate({ frame, card, setNumber, overlays, styles, skin, u }: 
   );
 }
 
+/**
+ * Built for a story rather than adapted to one: the photo holds the middle of the frame where
+ * nothing covers it, with the type in the band underneath and generous room top and bottom for
+ * the platform's own controls. On a feed ratio it degrades to a tall photo with a caption,
+ * which is still sensible — the picker just marks 9:16 as where it belongs.
+ */
+function StoryTemplate({
+  frame,
+  card,
+  setNumber,
+  overlays,
+  styles,
+  skin,
+  u,
+  aspect,
+}: CardTemplateProps & { aspect: AspectId }) {
+  const safe = storyInset(aspect, frame.height);
+  const pad = frame.width * 0.08;
+  const displayTitle = card.title?.trim() ? card.title.trim() : formatCardDateLabel(card.date);
+
+  return (
+    <View
+      style={[
+        styles.shellCanvas,
+        frame,
+        { paddingHorizontal: pad, paddingTop: safe.top + pad, paddingBottom: safe.bottom + pad },
+      ]}
+    >
+      <View style={styles.storyBody}>
+        {overlays.setNumber && setNumber != null && (
+          <Text style={styles.eyebrow}>SET {setNumber} · NO. {card.id}</Text>
+        )}
+
+        <View style={styles.storyPhoto}>
+          <Image source={{ uri: card.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          {card.isHolo && overlays.holoSheen && <HoloFoil foilRamp={skin.foilRamp} borderRadius={10 * u} />}
+        </View>
+
+        {overlays.title && (
+          <Text style={styles.storyTitle} numberOfLines={3}>
+            {displayTitle}
+          </Text>
+        )}
+
+        <View style={styles.storyMetaRow}>
+          {overlays.vibe && card.vibeType && (
+            <View style={[styles.storyVibe, { backgroundColor: theme.colors.vibe[card.vibeType] }]}>
+              <Text
+                style={[styles.storyVibeText, { color: readableInk(theme.colors.vibe[card.vibeType]) }]}
+              >
+                {vibeLabels[card.vibeType]}
+              </Text>
+            </View>
+          )}
+          {overlays.date && <Text style={styles.storyMeta}>{formatMonoDateWithDay(card.date)}</Text>}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function PageCardTemplate({
   frame,
   card,
@@ -385,6 +485,151 @@ function GridTemplate({
           })}
         </View>
       </BinderPage>
+    </View>
+  );
+}
+
+/**
+ * The photographs, side by side, and nothing else — no card stock, no binder leaf, no gutters.
+ * One hero across the top and two rows of three beneath it, which is exactly seven and fills
+ * any ratio without leftover cells.
+ *
+ * This is the plainest thing the app can produce, and deliberately so: every other set template
+ * frames the week as *cards*, which is the app's own idea about the photos. This one just shows
+ * the week.
+ */
+function MosaicTemplate({
+  frame,
+  set,
+  overlays,
+  styles,
+  skin,
+  u,
+  aspect,
+}: SetTemplateProps & { aspect: AspectId }) {
+  const safe = storyInset(aspect, frame.height);
+  const stageHeight = frame.height - safe.top - safe.bottom;
+  const heroHeight = stageHeight * 0.4;
+  const rowHeight = (stageHeight - heroHeight) / 2;
+  const columnWidth = frame.width / 3;
+
+  // Photos, not day slots: an incomplete week packs tight rather than leaving holes, because a
+  // mosaic with gaps in it reads as broken rather than as a week with days missing.
+  const photos = set.cards.filter((card): card is NonNullable<typeof card> => card !== null);
+  const hero = photos[0] ?? null;
+  const rest = photos.slice(1, 7);
+
+  return (
+    <View style={[styles.mosaicCanvas, frame, { paddingTop: safe.top, paddingBottom: safe.bottom }]}>
+      <MosaicCell card={hero} width={frame.width} height={heroHeight} skin={skin} overlays={overlays} />
+      <View style={styles.mosaicRow}>
+        {Array.from({ length: 6 }, (_, index) => (
+          <MosaicCell
+            key={set.dateKeys[index + 1] ?? index}
+            card={rest[index] ?? null}
+            width={columnWidth}
+            height={rowHeight}
+            skin={skin}
+            overlays={overlays}
+          />
+        ))}
+      </View>
+
+      {(overlays.setNumber || overlays.date) && (
+        <View style={[styles.mosaicCaption, { bottom: safe.bottom }]}>
+          <View style={[styles.mosaicCaptionScrim, linearGradient(['transparent', 'rgba(0,0,0,0.6)'], 180)]} />
+          <Text style={styles.mosaicCaptionText}>
+            {[
+              overlays.setNumber ? `SET ${set.setNumber}` : null,
+              overlays.date ? formatSetRange(set.startDate, set.dateKeys[6]) : null,
+              `${set.cardCount}/7`,
+            ]
+              .filter(Boolean)
+              .join('  ·  ')}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function MosaicCell({
+  card,
+  width,
+  height,
+  skin,
+  overlays,
+}: {
+  card: SetSummary['cards'][number];
+  width: number;
+  height: number;
+  skin: SkinTokens;
+  overlays: ShareOverlays;
+}) {
+  return (
+    <View style={{ width, height, backgroundColor: skin.cardstock.photoPlaceholder, overflow: 'hidden' }}>
+      {card && <Image source={{ uri: card.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />}
+      {card?.isHolo && overlays.holoSheen && <HoloFoil foilRamp={skin.foilRamp} />}
+    </View>
+  );
+}
+
+/**
+ * Two columns running the height of the frame, seamless. The proportions only work on a tall
+ * canvas, which is the point — this is the set counterpart to STORY.
+ */
+function TilesTemplate({
+  frame,
+  set,
+  overlays,
+  styles,
+  skin,
+  aspect,
+}: SetTemplateProps & { aspect: AspectId }) {
+  const safe = storyInset(aspect, frame.height);
+  const stageHeight = frame.height - safe.top - safe.bottom;
+  const columnWidth = frame.width / 2;
+  // Eight cells for seven photos; the spare one carries the set label, so the block stays a
+  // clean rectangle instead of ending on a ragged row.
+  const cellHeight = stageHeight / 4;
+
+  return (
+    <View style={[styles.mosaicCanvas, frame, { paddingTop: safe.top, paddingBottom: safe.bottom }]}>
+      <View style={styles.tilesGrid}>
+        {set.dateKeys.map((dateKey, index) => {
+          const card = set.cards[index];
+          return (
+            <View
+              key={dateKey}
+              style={{
+                width: columnWidth,
+                height: cellHeight,
+                backgroundColor: skin.cardstock.photoPlaceholder,
+                overflow: 'hidden',
+              }}
+            >
+              {card && (
+                <Image source={{ uri: card.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+              )}
+              {card?.isHolo && overlays.holoSheen && <HoloFoil foilRamp={skin.foilRamp} />}
+              {overlays.date && (
+                <View style={styles.tileDay}>
+                  <Text style={styles.tileDayText}>{formatGridDayLabel(dateKey)}</Text>
+                </View>
+              )}
+              {overlays.vibe && card?.vibeType && (
+                <View style={[styles.tileVibe, { backgroundColor: theme.colors.vibe[card.vibeType] }]} />
+              )}
+            </View>
+          );
+        })}
+
+        <View style={[styles.tileLabelCell, { width: columnWidth, height: cellHeight }]}>
+          <Text style={styles.tileLabelNumber}>Set {set.setNumber}</Text>
+          <Text style={styles.tileLabelRange}>{formatSetRange(set.startDate, set.dateKeys[6])}</Text>
+          <Text style={styles.tileLabelCount}>{set.cardCount}/7</Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -810,6 +1055,114 @@ function createStyles(skin: SkinTokens, u: number) {
     footnoteTight: {
       ...monoRaw(20 * u, 0.16),
       color: withAlpha(skin.shell.textPrimary, 0.45),
+    },
+
+    // story
+    storyBody: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    storyPhoto: {
+      width: '100%',
+      aspectRatio: 1,
+      borderRadius: 10 * u,
+      overflow: 'hidden',
+      backgroundColor: skin.cardstock.photoPlaceholder,
+      marginTop: 30 * u,
+    },
+    storyTitle: {
+      ...displayRaw(58 * u, 1.08),
+      color: skin.shell.textPrimary,
+      marginTop: 40 * u,
+    },
+    storyMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 18 * u,
+      marginTop: 26 * u,
+    },
+    storyVibe: {
+      paddingVertical: 8 * u,
+      paddingHorizontal: 16 * u,
+      borderRadius: 6 * u,
+    },
+    storyVibeText: bodyRaw(20 * u, 600),
+    storyMeta: {
+      ...monoRaw(22 * u, 0.14),
+      color: withAlpha(skin.shell.textPrimary, 0.55),
+    },
+
+    // mosaic + tiles — both are seamless photo blocks, so they share a canvas that has no
+    // padding of its own and a background that only shows through where a day is missing.
+    mosaicCanvas: {
+      backgroundColor: skin.shell.background,
+      overflow: 'hidden',
+    },
+    mosaicRow: {
+      flex: 1,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignContent: 'flex-start',
+    },
+    mosaicCaption: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      justifyContent: 'flex-end',
+      paddingHorizontal: 34 * u,
+      paddingBottom: 26 * u,
+      paddingTop: 90 * u,
+    },
+    mosaicCaptionScrim: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    mosaicCaptionText: {
+      ...monoRaw(21 * u, 0.18),
+      color: '#FFFFFF',
+    },
+    tilesGrid: {
+      flex: 1,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignContent: 'flex-start',
+    },
+    tileDay: {
+      position: 'absolute',
+      left: 16 * u,
+      top: 14 * u,
+      paddingVertical: 5 * u,
+      paddingHorizontal: 11 * u,
+      borderRadius: 5 * u,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+    },
+    tileDayText: {
+      ...monoRaw(16 * u, 0.12),
+      color: '#FFFFFF',
+    },
+    tileVibe: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: 7 * u,
+    },
+    tileLabelCell: {
+      backgroundColor: skin.shell.accent,
+      justifyContent: 'center',
+      paddingHorizontal: 26 * u,
+      gap: 10 * u,
+    },
+    tileLabelNumber: {
+      ...displayRaw(44 * u),
+      color: skin.shell.onAccent,
+    },
+    tileLabelRange: {
+      ...monoRaw(19 * u, 0.12),
+      color: withAlpha(skin.shell.onAccent, 0.8),
+    },
+    tileLabelCount: {
+      ...monoRaw(19 * u, 0.18),
+      color: withAlpha(skin.shell.onAccent, 0.8),
     },
 
     // stack

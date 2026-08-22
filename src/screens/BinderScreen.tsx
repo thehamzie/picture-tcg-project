@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { NativeScrollEvent, NativeSyntheticEvent, ViewToken } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp, RouteProp } from '@react-navigation/native';
@@ -22,7 +22,9 @@ import { withAlpha } from '../theme/color';
 import type { SkinTokens } from '../theme/skins';
 import { useSkin } from '../theme/SkinContext';
 import { body, display, mono, s } from '../theme/typography';
-import { formatSetRange, todayDateKey } from '../utils/date';
+import { displayThumb } from '../types/card';
+import { formatCardDateLabel, formatGridDayLabel, formatSetRange, todayDateKey } from '../utils/date';
+import * as haptics from '../utils/haptics';
 import { buildSets, type SetSummary } from '../utils/sets';
 
 // Binder — mockup 2f. The page-by-page mode is the default: one Set per binder leaf, with the
@@ -31,6 +33,11 @@ import { buildSets, type SetSummary } from '../utils/sets';
 // Ordering is oldest → newest, opening on the newest page. The mockup's own footer settles
 // this — it reads "◀ SET 32 … SET 34 ▶", so paging right moves forward in time, which is how
 // a physical binder flips. (AGENTS.md previously recorded newest-first as an open decision.)
+//
+// Both modes are virtualized. They used to be plain ScrollViews holding every Set at once,
+// which mounted seven card images per Set for the whole history — a year in is 52 pages and
+// 365 decoded photos resident at all times. FlatList keeps a few pages either side of the one
+// being read, and the grid draws thumbnails rather than full captures.
 
 type BinderNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<TabParamList>,
@@ -58,10 +65,16 @@ export default function BinderScreen() {
   const [pageIndex, setPageIndex] = useState(0);
   const [pageWidth, setPageWidth] = useState(0);
   const [scrollFocusIndex, setScrollFocusIndex] = useState(0);
-  const pagerRef = useRef<ScrollView | null>(null);
+  const pagerRef = useRef<FlatList<SetSummary> | null>(null);
   const didInitialScroll = useRef(false);
-  const sectionOffsets = useRef<number[]>([]);
-  const scrollViewportHeight = useRef(0);
+
+  // FlatList rejects a changing `onViewableItemsChanged`, so it is pinned in a ref. Scroll mode
+  // uses it to decide which Set is "being read", which is what gates the set-complete reveal.
+  const handleViewableChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const first = viewableItems[0];
+    if (first?.index != null) setScrollFocusIndex(first.index);
+  }).current;
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55 }).current;
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +105,7 @@ export default function BinderScreen() {
     if (viewMode !== 'pages' || pageWidth === 0 || sets.length === 0) return;
     if (didInitialScroll.current && !requestedSetStart) return;
     didInitialScroll.current = true;
-    pagerRef.current?.scrollTo({ x: targetIndex * pageWidth, animated: false });
+    pagerRef.current?.scrollToOffset({ offset: targetIndex * pageWidth, animated: false });
     setPageIndex(targetIndex);
   }, [viewMode, pageWidth, sets.length, targetIndex, requestedSetStart]);
 
@@ -110,26 +123,14 @@ export default function BinderScreen() {
     setPageIndex(Math.round(event.nativeEvent.contentOffset.x / width));
   }
 
-  function handleScrollModeScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const center = event.nativeEvent.contentOffset.y + scrollViewportHeight.current / 2;
-    let best = 0;
-    let bestDistance = Infinity;
-    sectionOffsets.current.forEach((offset, index) => {
-      if (offset === undefined) return;
-      const distance = Math.abs(offset - center);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = index;
-      }
-    });
-    setScrollFocusIndex(best);
-  }
-
   function goToPage(index: number) {
     if (index < 0 || index >= sets.length || !pageWidth) return;
-    pagerRef.current?.scrollTo({ x: index * pageWidth, animated: true });
+    haptics.tap();
+    pagerRef.current?.scrollToOffset({ offset: index * pageWidth, animated: true });
     setPageIndex(index);
   }
+
+  const scrollModeSets = useMemo(() => [...sets].reverse(), [sets]);
 
   const totalCards = cards.length;
   const ready = !loading && installedAt !== null && revealedSetDates !== null;
@@ -176,20 +177,33 @@ export default function BinderScreen() {
       ) : viewMode === 'pages' ? (
         <View style={styles.pagerArea} onLayout={(event) => setPageWidth(event.nativeEvent.layout.width)}>
           {pageWidth > 0 && (
-            <ScrollView
+            <FlatList
               ref={pagerRef}
+              data={sets}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={handlePagerScrollEnd}
-            >
-              {sets.map((set, index) => (
-                <View key={set.startDate} style={{ width: pageWidth }}>
+              keyExtractor={(set) => set.startDate}
+              // Every page is exactly the viewport's width, so the offsets are known without
+              // measuring — which is what lets the binder open directly on the newest Set
+              // instead of scrolling there after layout.
+              getItemLayout={(_, index) => ({
+                length: pageWidth,
+                offset: pageWidth * index,
+                index,
+              })}
+              initialScrollIndex={targetIndex}
+              initialNumToRender={1}
+              windowSize={3}
+              removeClippedSubviews
+              renderItem={({ item, index }) => (
+                <View style={{ width: pageWidth }}>
                   <View style={styles.pageInset}>
                     <SetPage
-                      set={set}
+                      set={item}
                       isFocused={index === pageIndex}
-                      revealed={revealedSetDates.has(set.startDate)}
+                      revealed={revealedSetDates.has(item.startDate)}
                       onSettle={handleSettle}
                       navigation={navigation}
                       footer={
@@ -205,41 +219,36 @@ export default function BinderScreen() {
                     />
                   </View>
                 </View>
-              ))}
-            </ScrollView>
+              )}
+            />
           )}
         </View>
       ) : (
-        <ScrollView
+        <FlatList
           style={styles.stageFill}
           contentContainerStyle={styles.scrollContent}
-          onLayout={(event) => {
-            scrollViewportHeight.current = event.nativeEvent.layout.height;
-          }}
-          onScroll={handleScrollModeScroll}
-          scrollEventThrottle={32}
+          data={scrollModeSets}
+          keyExtractor={(set) => set.startDate}
           showsVerticalScrollIndicator={false}
-        >
-          {[...sets].reverse().map((set, index) => (
-            <View
-              key={set.startDate}
-              onLayout={(event) => {
-                sectionOffsets.current[index] = event.nativeEvent.layout.y;
-              }}
-              style={styles.scrollSection}
-            >
+          onViewableItemsChanged={handleViewableChanged}
+          viewabilityConfig={viewabilityConfig}
+          initialNumToRender={2}
+          windowSize={5}
+          removeClippedSubviews
+          renderItem={({ item, index }) => (
+            <View style={styles.scrollSection}>
               <SetPage
-                set={set}
+                set={item}
                 isFocused={index === scrollFocusIndex}
-                revealed={revealedSetDates.has(set.startDate)}
+                revealed={revealedSetDates.has(item.startDate)}
                 onSettle={handleSettle}
                 navigation={navigation}
                 showSpine={false}
                 fixedHeight={false}
               />
             </View>
-          ))}
-        </ScrollView>
+          )}
+        />
       )}
     </View>
   );
@@ -312,6 +321,8 @@ function SetPage({
             <Pressable
               onPress={() => navigation.navigate('Export', { setStartDate: set.startDate })}
               hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel={`Share set ${set.setNumber}`}
             >
               <Ionicons name="share-outline" size={s(15)} color={skin.page.ink} />
             </Pressable>
@@ -328,10 +339,21 @@ function SetPage({
                 <Pressable
                   key={dateKey}
                   style={slotWidth != null ? { width: slotWidth } : styles.slotFallback}
-                  onPress={() => navigation.navigate('CardDetail', { cardId: card.id })}
+                  accessibilityRole="button"
+                  accessibilityLabel={[
+                    card.title?.trim() || formatCardDateLabel(card.date),
+                    formatGridDayLabel(dateKey),
+                    card.isHolo ? 'holo' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}
+                  onPress={() => {
+                    haptics.tap();
+                    navigation.navigate('CardDetail', { cardId: card.id });
+                  }}
                 >
                   <CardThumb
-                    photoUri={card.photoUri}
+                    photoUri={displayThumb(card)}
                     date={card.date}
                     vibeType={card.vibeType}
                     isHolo={card.isHolo}
@@ -347,7 +369,13 @@ function SetPage({
             ];
             if (dateKey === today) {
               return (
-                <Pressable key={dateKey} style={style} onPress={() => navigation.navigate('Camera')}>
+                <Pressable
+                  key={dateKey}
+                  style={style}
+                  onPress={() => navigation.navigate('Camera')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Pull today's card"
+                >
                   <Text style={styles.emptySlotPlus}>+</Text>
                 </Pressable>
               );

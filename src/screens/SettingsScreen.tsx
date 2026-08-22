@@ -21,8 +21,15 @@ import { linearGradient } from '../theme/gradients';
 import { SKIN_SWATCHES, type SkinTokens } from '../theme/skins';
 import { useSkin } from '../theme/SkinContext';
 import { body, display, mono, s } from '../theme/typography';
-import { saveAllPhotosToLibrary, writeCollectionExport } from '../utils/backup';
+import {
+  restoreFromArchive,
+  saveAllPhotosToLibrary,
+  writeBackupArchive,
+  writeCollectionExport,
+} from '../utils/backup';
 import { formatMonoDate } from '../utils/date';
+import * as haptics from '../utils/haptics';
+import { resetThumbnailBackfill } from '../hooks/useThumbnailBackfill';
 import { cancelDailyReminder, requestNotificationPermission, scheduleDailyReminder } from '../utils/notifications';
 
 // Settings. Three things live here that previously had no home at all: the reminder (scheduled
@@ -32,12 +39,18 @@ import { cancelDailyReminder, requestNotificationPermission, scheduleDailyRemind
 const MINUTE_STEP = 15;
 const MINUTES_PER_DAY = 24 * 60;
 
+// Resolved on the JS thread at module load, NOT inside the worklet below. `s()` is an ordinary
+// imported function; calling it from a worklet running on the UI runtime throws "tried to
+// synchronously call a non-worklet function", which surfaces as a hard native crash with no JS
+// error rather than something the ErrorBoundary can catch.
+const KNOB_TRAVEL = s(17);
+
 type SettingsNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsNavigationProp>();
   const db = useSQLiteContext();
-  const { cards } = useCards();
+  const { cards, refresh } = useCards();
   const { skin, skinId } = useSkin();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(skin), [skin]);
@@ -113,6 +126,68 @@ export default function SettingsScreen() {
     }
   }
 
+  async function handleBackup() {
+    if (busy || cards.length === 0) return;
+    setBusy(true);
+    setProgressLabel(`0 / ${cards.length}`);
+    try {
+      const result = await writeBackupArchive(cards, ({ done, total }) =>
+        setProgressLabel(`${done} / ${total}`)
+      );
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(result.uri, {
+          mimeType: 'application/octet-stream',
+          UTI: 'public.data',
+          dialogTitle: 'Save your Daily Pull backup',
+        });
+      } else {
+        Alert.alert('Backup written', `Saved to ${result.uri}`);
+      }
+      if (result.skipped.length > 0) {
+        // Named rather than glossed over: a skipped card means its photo file is missing from
+        // this phone, which the user probably wants to know about independently of the backup.
+        Alert.alert(
+          'Backed up, with gaps',
+          `${result.cardCount} cards are in the backup. ${result.skipped.length} could not be included because their photo is missing: ${result.skipped.slice(0, 5).join(', ')}${result.skipped.length > 5 ? '…' : ''}.`
+        );
+      }
+    } catch (error) {
+      Alert.alert('Could not back up', describe(error));
+      console.error('[settings] backup failed', error);
+    } finally {
+      setBusy(false);
+      setProgressLabel(null);
+    }
+  }
+
+  async function handleRestore() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await restoreFromArchive(db, ({ done, total }) =>
+        setProgressLabel(`${done} / ${total}`)
+      );
+      if (result.cancelled) return;
+
+      // New rows arrive without thumbnails when one couldn't be built, so let the backfill run
+      // again this session rather than waiting for the next launch.
+      resetThumbnailBackfill();
+      await refresh();
+      haptics.success();
+
+      const parts = [`${result.restored} restored`];
+      if (result.alreadyPresent > 0) parts.push(`${result.alreadyPresent} already in your binder`);
+      if (result.failed.length > 0) parts.push(`${result.failed.length} could not be read`);
+      Alert.alert(result.restored > 0 ? 'Restored' : 'Nothing to restore', `${parts.join(', ')}.`);
+    } catch (error) {
+      Alert.alert('Could not restore', describe(error));
+      console.error('[settings] restore failed', error);
+    } finally {
+      setBusy(false);
+      setProgressLabel(null);
+    }
+  }
+
   async function handleExportData() {
     if (busy || cards.length === 0) return;
     setBusy(true);
@@ -138,7 +213,12 @@ export default function SettingsScreen() {
     <View style={[styles.screen, { paddingTop: insets.top + s(12) }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Settings</Text>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close settings"
+        >
           <Ionicons name="close" size={s(20)} color={skin.shell.textPrimary} />
         </Pressable>
       </View>
@@ -162,11 +242,25 @@ export default function SettingsScreen() {
 
           {reminder?.enabled && (
             <View style={styles.timeRow}>
-              <Pressable style={styles.timeStep} onPress={() => shiftReminder(-MINUTE_STEP)} hitSlop={8}>
+              <Pressable
+                style={styles.timeStep}
+                onPress={() => shiftReminder(-MINUTE_STEP)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Fifteen minutes earlier"
+              >
                 <Text style={styles.timeStepText}>−</Text>
               </Pressable>
-              <Text style={styles.timeValue}>{formatTime(reminder.hour, reminder.minute)}</Text>
-              <Pressable style={styles.timeStep} onPress={() => shiftReminder(MINUTE_STEP)} hitSlop={8}>
+              <Text style={styles.timeValue} accessibilityLabel={`Reminder at ${formatTime(reminder.hour, reminder.minute)}`}>
+                {formatTime(reminder.hour, reminder.minute)}
+              </Text>
+              <Pressable
+                style={styles.timeStep}
+                onPress={() => shiftReminder(MINUTE_STEP)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Fifteen minutes later"
+              >
                 <Text style={styles.timeStepText}>+</Text>
               </Pressable>
             </View>
@@ -189,7 +283,7 @@ export default function SettingsScreen() {
           </View>
         </Pressable>
 
-        <Text style={styles.sectionLabel}>YOUR COLLECTION</Text>
+        <Text style={styles.sectionLabel}>BACKUP</Text>
         <View style={styles.card}>
           {/* Stated plainly, because the consequence is permanent and most people assume
               otherwise about an app that holds photos. */}
@@ -197,6 +291,33 @@ export default function SettingsScreen() {
             Your cards live only on this phone. If Daily Pull is deleted, they go with it.
           </Text>
 
+          <Pressable style={styles.row} onPress={handleBackup} disabled={busy || cards.length === 0}>
+            <View style={styles.rowCopy}>
+              <Text style={styles.rowTitle}>Back up everything</Text>
+              <Text style={styles.rowSubtitle}>
+                {progressLabel
+                  ? `Packing ${progressLabel}…`
+                  : 'One file with every photo and record — save it somewhere safe'}
+              </Text>
+            </View>
+            <Ionicons name="archive-outline" size={s(19)} color={skin.shell.accent} />
+          </Pressable>
+
+          <View style={styles.divider} />
+
+          <Pressable style={styles.row} onPress={handleRestore} disabled={busy}>
+            <View style={styles.rowCopy}>
+              <Text style={styles.rowTitle}>Restore from a backup</Text>
+              <Text style={styles.rowSubtitle}>
+                Adds any days you don&apos;t already have. Nothing here is overwritten.
+              </Text>
+            </View>
+            <Ionicons name="download-outline" size={s(19)} color={skin.shell.accent} />
+          </Pressable>
+        </View>
+
+        <Text style={styles.sectionLabel}>YOUR COLLECTION</Text>
+        <View style={styles.card}>
           <Pressable style={styles.row} onPress={handleSaveAllPhotos} disabled={busy || cards.length === 0}>
             <View style={styles.rowCopy}>
               <Text style={styles.rowTitle}>Copy every photo to Photos</Text>
@@ -259,7 +380,7 @@ function PillSwitch({ value, skin }: { value: boolean; skin: SkinTokens }) {
   useEffect(() => {
     progress.value = withTiming(value ? 1 : 0, { duration: 180 });
   }, [value, progress]);
-  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: progress.value * s(17) }] }));
+  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: progress.value * KNOB_TRAVEL }] }));
 
   return (
     <View

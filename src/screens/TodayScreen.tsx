@@ -19,6 +19,7 @@ import type { SkinTokens } from '../theme/skins';
 import { useSkin } from '../theme/SkinContext';
 import { theme } from '../theme/theme';
 import { body, display, mono, s } from '../theme/typography';
+import { displayThumb } from '../types/card';
 import { formatTodayHeaderDate, todayDateKey } from '../utils/date';
 import { getMondayOfWeek, getSetNumberForDate, getWeekDateKeys } from '../utils/sets';
 import { computeDayStreak } from '../utils/streak';
@@ -64,7 +65,13 @@ export default function TodayScreen() {
           <Text style={styles.headerTitle}>Today</Text>
         </View>
         <View style={styles.headerRight}>
-          <Pressable onPress={() => navigation.navigate('Settings')} hitSlop={12} style={styles.skinButton}>
+          <Pressable
+            onPress={() => navigation.navigate('Settings')}
+            hitSlop={12}
+            style={styles.skinButton}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+          >
             <Ionicons name="settings-outline" size={s(17)} color={skin.shell.textSecondary} />
           </Pressable>
           <Text style={styles.streakCount}>{loading ? '—' : streak}</Text>
@@ -138,7 +145,7 @@ export default function TodayScreen() {
                   onPress={() => navigation.navigate('CardDetail', { cardId: card.id })}
                 >
                   <View style={[styles.weekThumb, placeholderHatch(withAlpha(skin.cardstock.inkRule, 0.13))]}>
-                    <Image source={{ uri: card.photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                    <Image source={{ uri: displayThumb(card) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
                   </View>
                   <View
                     style={[

@@ -25,9 +25,21 @@ type SliderProps = {
   orientation?: 'horizontal' | 'vertical';
   length?: number;
   disabled?: boolean;
+  /** What this slider controls, for screen readers. */
+  label?: string;
+  /** The current value spoken aloud, e.g. "+1.0 EV" — more use than a percentage. */
+  valueText?: string;
 };
 
 const KNOB = 13;
+
+// Resolved on the JS thread at module load, NOT inside `knobStyle`'s worklet. `s()` is an
+// ordinary imported function; calling it from a worklet running on the UI runtime throws "tried
+// to synchronously call a non-worklet function", which surfaces as a hard native crash with no
+// JS error rather than something the ErrorBoundary can catch.
+const KNOB_HALF = s(KNOB) / 2;
+
+const ADJUST_ACTIONS = [{ name: 'increment' }, { name: 'decrement' }] as const;
 
 export default function Slider({
   value,
@@ -36,6 +48,8 @@ export default function Slider({
   orientation = 'horizontal',
   length,
   disabled = false,
+  label,
+  valueText,
 }: SliderProps) {
   const { skin } = useSkin();
   const [extent, setExtent] = useState(0);
@@ -71,8 +85,8 @@ export default function Slider({
   );
   const knobStyle = useAnimatedStyle(() =>
     isVertical
-      ? { bottom: `${progress.value * 100}%`, marginBottom: -s(KNOB) / 2 }
-      : { left: `${progress.value * 100}%`, marginLeft: -s(KNOB) / 2 }
+      ? { bottom: `${progress.value * 100}%`, marginBottom: -KNOB_HALF }
+      : { left: `${progress.value * 100}%`, marginLeft: -KNOB_HALF }
   );
 
   return (
@@ -83,6 +97,23 @@ export default function Slider({
           isVertical && length != null ? { height: length } : null,
           disabled && styles.disabled,
         ]}
+        // A drag gesture is invisible to a screen reader, so the slider also exposes itself as
+        // an adjustable with increment/decrement — which is how VoiceOver and TalkBack drive
+        // one, by swiping up and down rather than along the track.
+        accessible
+        accessibilityRole="adjustable"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled }}
+        accessibilityValue={
+          valueText ? { text: valueText } : { min: 0, max: 100, now: Math.round(value * 100) }
+        }
+        accessibilityActions={ADJUST_ACTIONS}
+        onAccessibilityAction={(event) => {
+          if (disabled) return;
+          const step = steps && steps > 1 ? 1 / (steps - 1) : 0.05;
+          if (event.nativeEvent.actionName === 'increment') commit(value + step);
+          if (event.nativeEvent.actionName === 'decrement') commit(value - step);
+        }}
         onLayout={(event) =>
           setExtent(isVertical ? event.nativeEvent.layout.height : event.nativeEvent.layout.width)
         }

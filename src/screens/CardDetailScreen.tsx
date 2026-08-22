@@ -18,6 +18,7 @@ import { useSkin } from '../theme/SkinContext';
 import { theme, vibeLabels, VIBE_ORDER, type VibeType } from '../theme/theme';
 import { body, mono, s } from '../theme/typography';
 import type { Card } from '../types/card';
+import * as haptics from '../utils/haptics';
 import { HOLO_BASE_CHANCE } from '../utils/holo';
 import { deleteCardPhoto } from '../utils/photoStorage';
 import { getSetNumberForDate } from '../utils/sets';
@@ -80,6 +81,7 @@ export default function CardDetailScreen() {
 
   function confirmDelete() {
     if (!card) return;
+    haptics.warn();
     Alert.alert(
       'Delete this card?',
       'The photo and everything recorded with it are removed for good. This cannot be undone.',
@@ -91,7 +93,7 @@ export default function CardDetailScreen() {
           onPress: async () => {
             try {
               await deleteCard(db, card.id);
-              deleteCardPhoto(card.photoUri);
+              deleteCardPhoto(card.photoUri, card.thumbUri);
               navigation.goBack();
             } catch (error) {
               Alert.alert('Could not delete', 'The card was not removed. Please try again.');
@@ -120,7 +122,12 @@ export default function CardDetailScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + s(12) }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
           <Ionicons name="close" size={s(20)} color={skin.shell.textPrimary} />
         </Pressable>
         <Text style={styles.headerLabel}>{card?.isHolo ? 'HOLO — TILT REACTIVE' : 'COMMON — MATTE'}</Text>
@@ -129,6 +136,8 @@ export default function CardDetailScreen() {
             onPress={() => (editing ? cancelEdit() : card && startEdit(card))}
             hitSlop={12}
             disabled={!card}
+            accessibilityRole="button"
+            accessibilityLabel={editing ? 'Stop editing' : 'Edit the title and tag'}
           >
             <Ionicons
               name={editing ? 'close-circle-outline' : 'create-outline'}
@@ -140,6 +149,8 @@ export default function CardDetailScreen() {
             onPress={() => card && navigation.navigate('Export', { cardId: card.id })}
             hitSlop={12}
             disabled={!card}
+            accessibilityRole="button"
+            accessibilityLabel="Share this card"
           >
             <Ionicons name="share-outline" size={s(20)} color={skin.shell.accent} />
           </Pressable>
@@ -198,6 +209,8 @@ export default function CardDetailScreen() {
                   style={styles.shuffleButton}
                   onPress={() => setDraftTitle(randomTitlePhrase())}
                   hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Suggest a title"
                 >
                   <Ionicons name="shuffle" size={s(16)} color={skin.shell.accent} />
                 </Pressable>
@@ -261,7 +274,14 @@ export default function CardDetailScreen() {
                 />
               </View>
 
-              <Pressable onPress={confirmDelete} hitSlop={10} style={styles.deleteButton}>
+              <Pressable
+                onPress={confirmDelete}
+                hitSlop={10}
+                style={styles.deleteButton}
+                accessibilityRole="button"
+                accessibilityLabel="Delete this card"
+                accessibilityHint="Asks you to confirm first"
+              >
                 <Ionicons name="trash-outline" size={s(14)} color={theme.colors.vibe.adventure} />
                 <Text style={styles.deleteText}>DELETE THIS CARD</Text>
               </Pressable>

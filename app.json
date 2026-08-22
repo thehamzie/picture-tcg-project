@@ -5,14 +5,18 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true,
+      "bundleIdentifier": "com.dailypull.app",
+      "buildNumber": "1",
+      "supportsTablet": false,
       "infoPlist": {
         "NSMotionUsageDescription": "Daily Pull uses motion to animate the tilt-reactive holo effect on rare cards."
       }
     },
     "android": {
+      "package": "com.dailypull.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#17130F",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -5,6 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { getOnboardingComplete } from '../db/settingsRepository';
 import CameraScreen from '../screens/CameraScreen';
 import CardDetailScreen from '../screens/CardDetailScreen';
+import DevelopScreen from '../screens/DevelopScreen';
 import ExportScreen from '../screens/ExportScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import PermissionsScreen from '../screens/PermissionsScreen';
@@ -40,6 +41,9 @@ export default function RootNavigator() {
       <Stack.Screen name="Permissions" component={PermissionsScreen} />
       <Stack.Screen name="Main" component={TabNavigator} />
       <Stack.Screen name="Camera" component={CameraScreen} options={{ presentation: 'fullScreenModal' }} />
+      {/* Camera replaces itself with Develop, so the camera unmounts and its capture session
+          is released before the develop screen starts doing GPU work. */}
+      <Stack.Screen name="Develop" component={DevelopScreen} />
       <Stack.Screen name="Reveal" component={RevealScreen} />
       <Stack.Screen name="CardDetail" component={CardDetailScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="Export" component={ExportScreen} options={{ presentation: 'modal' }} />

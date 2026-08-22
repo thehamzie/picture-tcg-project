@@ -14,7 +14,8 @@ import { withAlpha } from '../theme/color';
 import type { SkinTokens } from '../theme/skins';
 import { useSkin } from '../theme/SkinContext';
 import { mono, s } from '../theme/typography';
-import type { Card } from '../types/card';
+import { displayThumb, type Card } from '../types/card';
+import * as haptics from '../utils/haptics';
 import CardThumb from './CardThumb';
 
 // Set-complete "pack reveal" — mockup 2g. The fan geometry is the design export's own
@@ -64,6 +65,9 @@ export default function SetCompleteReveal({ dateKeys, cards, active, onSettle }:
   }, [active, fan]);
 
   function handleSettle() {
+    // Fires on the tap rather than on `onSettle`, so the feedback lands with the finger and not
+    // half a second later when the animation finishes.
+    haptics.success();
     fan.value = withTiming(
       0,
       { duration: SETTLE_DURATION_MS, easing: Easing.inOut(Easing.cubic) },
@@ -130,7 +134,7 @@ function FannedCard({
     <Animated.View style={[styles.fanSlot, style]}>
       <Pressable onPress={onPress}>
         <CardThumb
-          photoUri={card?.photoUri ?? null}
+          photoUri={card ? displayThumb(card) : null}
           date={date}
           vibeType={card?.vibeType ?? null}
           isHolo={card?.isHolo ?? false}

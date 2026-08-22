@@ -30,6 +30,7 @@ import { withAlpha } from '../theme/color';
 import type { SkinTokens } from '../theme/skins';
 import { useSkin } from '../theme/SkinContext';
 import { body, display, mono, s } from '../theme/typography';
+import * as haptics from '../utils/haptics';
 import { buildSets, getSetNumberForDate } from '../utils/sets';
 
 // Share — replaces the old single-purpose Export screen. Two things changed:
@@ -59,6 +60,12 @@ const MAX_PREVIEW_HEIGHT = 330;
 
 /** Time for the canvas to settle after `capturing` flips, before snapshotting. */
 const CAPTURE_SETTLE_MS = 220;
+
+// Resolved on the JS thread at module load, NOT inside the worklet in `PillSwitch`. `s()` is an
+// ordinary imported function; calling it from a worklet running on the UI runtime throws "tried
+// to synchronously call a non-worklet function", which surfaces as a hard native crash with no
+// JS error rather than something the ErrorBoundary can catch.
+const KNOB_TRAVEL = s(17);
 
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -288,7 +295,12 @@ export default function ExportScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + s(12) }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
           <Ionicons name="close" size={s(18)} color={withAlpha(skin.shell.textPrimary, 0.7)} />
         </Pressable>
         <Text style={styles.headerTitle}>Share</Text>
@@ -338,11 +350,22 @@ export default function ExportScreen() {
                 <Pressable
                   key={entry.id}
                   disabled={saveRawInstead}
-                  onPress={() => setTemplate(entry.id)}
+                  onPress={() => {
+                    haptics.selection();
+                    setTemplate(entry.id);
+                    // A template laid out for one ratio switches to it rather than rendering
+                    // its proportions wrong and leaving the user to work out why.
+                    if (entry.bestAspect) setAspect(entry.bestAspect);
+                  }}
                   style={[styles.templateChip, active && styles.templateChipActive]}
                 >
                   <Text style={[styles.templateLabel, active && styles.templateLabelActive]}>{entry.label}</Text>
                   <Text style={[styles.templateHint, active && styles.templateHintActive]}>{entry.hint}</Text>
+                  {entry.bestAspect && (
+                    <Text style={[styles.templateBadge, active && styles.templateHintActive]}>
+                      {entry.bestAspect}
+                    </Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -394,11 +417,20 @@ export default function ExportScreen() {
         </View>
 
         {isCardSubject ? (
-          <Pressable style={styles.rawRow} onPress={() => setSaveRawInstead((value) => !value)}>
+          <Pressable
+            style={styles.rawRow}
+            onPress={() => {
+              haptics.tap();
+              setSaveRawInstead((value) => !value);
+            }}
+          >
             <View style={styles.rawCopy}>
-              <Text style={styles.rawTitle}>Use the raw photo instead</Text>
+              <Text style={styles.rawTitle}>Use the photo on its own</Text>
+              {/* Careful wording: this is the stored photo without the app's frame and
+                  captions, at full resolution. It is not an *unfiltered* photo — the camera
+                  filter is baked in at capture and there is no original kept behind it. */}
               <Text style={styles.rawSubtitle}>
-                Unstyled, full resolution — applies to both Save and Share
+                No frame, no captions, full resolution — applies to both Save and Share
               </Text>
             </View>
             <PillSwitch value={saveRawInstead} skin={skin} />
@@ -468,7 +500,7 @@ function PillSwitch({ value, skin }: { value: boolean; skin: SkinTokens }) {
     progress.value = withTiming(value ? 1 : 0, { duration: 180 });
   }, [value, progress]);
 
-  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: progress.value * s(17) }] }));
+  const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: progress.value * KNOB_TRAVEL }] }));
 
   return (
     <View
@@ -568,6 +600,11 @@ function createStyles(skin: SkinTokens) {
     },
     templateHintActive: {
       color: withAlpha(skin.shell.onAccent, 0.75),
+    },
+    templateBadge: {
+      ...mono(7.5, 0.14),
+      color: withAlpha(skin.shell.accent, 0.9),
+      marginTop: s(4),
     },
     aspectRow: {
       flexDirection: 'row',

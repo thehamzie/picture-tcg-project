@@ -1,5 +1,6 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
+import { useThumbnailBackfill } from '../hooks/useThumbnailBackfill';
 import BinderScreen from '../screens/BinderScreen';
 import SetsScreen from '../screens/SetsScreen';
 import TodayScreen from '../screens/TodayScreen';
@@ -9,6 +10,10 @@ import type { TabParamList } from './types';
 const Tab = createBottomTabNavigator<TabParamList>();
 
 export default function TabNavigator() {
+  // Mounted here rather than in App.tsx so it starts only once the user is past onboarding and
+  // there is actually a collection to work through.
+  useThumbnailBackfill();
+
   return (
     <Tab.Navigator
       screenOptions={{ headerShown: false }}

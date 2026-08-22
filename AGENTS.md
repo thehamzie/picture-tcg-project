@@ -433,6 +433,295 @@ app.
   - `npx tsc --noEmit` clean; iOS and Android bundles both build. Still no simulator/device
     here — the crash fixes are structural, not observed.
 
+- **The Settings / single-card-share crash: found, and it was never the native modules.** Two
+  earlier passes attributed this to blend-mode snapshotting and then to capture-canvas memory.
+  Both of those were real problems and both fixes are worth keeping, but neither was this
+  crash. The actual cause: **a `useAnimatedStyle` worklet calling `s()`, an ordinary
+  non-worklet imported function**, in exactly three places —
+  `SettingsScreen.tsx`'s `PillSwitch` (`progress.value * s(17)`), `ExportScreen.tsx`'s
+  `PillSwitch` (identical, a copy of the same component), and `Slider.tsx`'s `knobStyle`
+  (`-s(KNOB) / 2`). Reanimated's Babel plugin captures `s` into the worklet's closure; on the
+  UI runtime it is a non-worklet stub, so invoking it throws *on the UI thread*, outside
+  React's reach. That is why it presented as a total process death with no error code and why
+  `ErrorBoundary` never fired — the boundary was working correctly and was, as intended,
+  the evidence that the fault was below JS.
+  Why those exact screens and nothing else: `useAnimatedStyle`'s **first** evaluation runs on
+  the JS thread, where `s` is perfectly callable, so mounting is fine; it only moves to the UI
+  runtime once the value animates. `PillSwitch`'s `useEffect` fires `withTiming` immediately on
+  mount, so Settings and the card-share screen die on open. `Slider` only re-evaluates on drag,
+  so the manual-camera drawer opens fine and would have died on first slider drag.
+  It also explains the sharp Set-vs-card asymmetry the user reported: `ExportScreen` renders
+  `PillSwitch` only under `isCardSubject` — a Set share renders a plain `Ionicons` row instead,
+  which is why sharing a whole Set worked while sharing one photo did not.
+  Fix is a one-line hoist in each: `s()` is resolved at module load on the JS thread
+  (`KNOB_TRAVEL`, `KNOB_HALF`) and the worklet multiplies a captured number. Every other
+  worklet in the app was audited and is clean — `useTilt`, `HoloFoil`, `SetCompleteReveal`,
+  `HardButton`, `FaceDownCard`, `DailyPullTabBar`, `RevealScreen` and both gesture handlers
+  capture only numbers, booleans, `Math`, worklet-marked helpers (`clamp`), or `runOnJS`.
+  Standing lesson for this codebase: `s()`, `body()`, `mono()`, `display()`, `withAlpha()` are
+  all JS-thread-only. Anything a worklet needs from them must be computed outside it.
+  `npx tsc --noEmit` clean. Still no simulator/device here — but unlike the two previous
+  attempts this is a structural defect identified in the source, not an inference about
+  native behaviour, and it predicts the observed symptom set exactly.
+
+- **Real image pipeline: the camera's controls and filters now change the photograph.** The
+  user confirmed Settings and manual mode no longer crash, and asked for the manual controls to
+  stop being decorative. Both that and "more filters" turned out to be the same missing piece —
+  the app had no image processing anywhere, so the filter strip was a preview tint that never
+  reached the file (`saveCardPhoto` copied the untouched capture) and EXPOSURE/ISO were labelled
+  "VISUAL ONLY".
+  - **`@shopify/react-native-skia` added** (user-approved; the plan was explicitly "Skia now,
+    VisionCamera after"). New `src/camera/`: `colorMatrix.ts` (4x5 matrix algebra — compose,
+    exposure in real stops, contrast about mid-grey, Rec.709 saturation, temperature, film
+    fade, duotone), `filters.ts` (**15 presets**, up from 5; the mockup's original NONE/KODA/
+    FADE/DISCO/GREY keep their confirmed swatches, plus NOIR/SUN/FROST/DUST/PINE/BLOOM/SEPIA/
+    NEON/SLATE/HONEY), and `develop.ts` (the Skia pass). A whole recipe — preset plus the
+    user's five adjustments — collapses into **one** colour matrix, so any photo costs one
+    texture upload and one draw regardless of how much is stacked.
+  - **What is real, precisely.** ZOOM, FOCUS (binary lock), FLASH and the newly-added TORCH act
+    on the sensor. EXPOSURE, CONTRAST, SATURATION, WARMTH and GRAIN are real but act on the
+    captured still, not the sensor — expo-camera 17 still exposes `exposureCompensation`/`iso`
+    only on `WebCameraSettings`, re-verified in `Camera.types.d.ts` rather than assumed. So the
+    drawer is now a *develop* panel and says "BAKED AT CAPTURE" instead of "POST-MVP". Manual
+    ISO/shutter is unavailable in **every** RN camera library including VisionCamera, so that
+    one is not a scoping choice at any point on the roadmap.
+  - **EXIF orientation had to be handled explicitly.** Skia decodes raw pixels and ignores the
+    orientation tag while RN's `<Image>` honours it, so without this a landscape capture would
+    look upright everywhere in the app until the moment it was developed, then silently come
+    out rotated. `takePictureAsync({ exif: true })` now feeds all eight orientations through
+    `applyExifTransform`.
+  - **Live preview is blend layers, not a flat tint.** Each preset declares a small
+    `mixBlendMode` stack (`saturation`, `color`, `soft-light`, `color-burn`), which gets
+    genuinely close for the monochrome and duotone presets where a translucent rectangle only
+    ever washed the image out. Two traps here, both handled: no `isolation` on the wrapper (the
+    layers must stay in the camera's stacking context to blend against it), and a flat-tint
+    fallback on Android below API 29, where RN ignores `mixBlendMode` — an ignored `saturation`
+    blend on opaque black is a black viewfinder.
+  - **Filters bake destructively — the user's explicit choice**, after being told the two
+    consequences. Recorded in open decisions below. Export's "use the raw photo instead" was
+    relabelled **"Use the photo on its own"** ("no frame, no captions, full resolution")
+    because it can no longer honestly mean *unfiltered*.
+- **Thumbnails + virtualization.** The binder mounted every Set at once in a plain ScrollView
+  and drew full 12MP captures into ~100pt slots — a year in, that is 52 pages and 365 decoded
+  photos resident. Capture now also writes a 360px thumbnail (`cards.thumb_uri`), both binder
+  modes are `FlatList`s (`getItemLayout` + `initialScrollIndex` for pages, so it still opens
+  directly on the newest Set; `onViewableItemsChanged` for scroll, replacing the old
+  measure-every-section centre math), and `displayThumb(card)` feeds the grid, Today's week row
+  and the set-complete fan. Share templates deliberately keep full photos — a 1080px export
+  would show a 360px thumbnail. Old cards are filled in by `useThumbnailBackfill`, mounted in
+  `TabNavigator`: four at a time with a pause between batches, failures written back as the
+  photo's own URI so the query can't loop on an unreadable row.
+- **Backup is now a real round trip.** `writeCollectionExport` was write-only; nothing read it.
+  New `writeBackupArchive` / `restoreFromArchive` produce and consume **one file** containing
+  every record *and* every photo, written and read through a `FileHandle` one photo at a time
+  so a 300-card collection costs a few MB of memory rather than the archive's size. Format is
+  `DPBAK1\n` + a ten-digit header length + ASCII-escaped JSON header + the photos concatenated
+  in header order. Deliberately not a zip: a JS zip library would have to hold everything at
+  once, which is the same mistake the share canvas made twice. `TextEncoder` is avoided for the
+  same reason — its presence depends on the engine build — so the header is escaped to printable
+  ASCII via JSON's own `\uXXXX` and `JSON.parse` reverses it, meaning a title in any script
+  survives. Restore is **additive**: existing days are never overwritten (photos still have to
+  be consumed in order so the read head doesn't land mid-photo), and it reports restored /
+  already-present / failed separately. Backup goes out via the share sheet rather than a
+  directory picker — one step, and it sidesteps Android SAF entirely.
+- **Three new share templates**, on the user's request for a side-by-side grid and things that
+  sit naturally in a story. **MOSAIC** (set) is the direct answer: seven photos edge to edge,
+  no gutters, no card stock, no binder leaf — one hero across the top and two rows of three,
+  which is exactly seven with no leftover cells. It packs photos rather than day slots, so an
+  incomplete week reads as tight rather than broken. **TILES** (set, 9:16) is two seamless
+  columns with the eighth cell carrying the set label. **STORY** (card, 9:16) holds the photo in
+  the middle of the frame with the type below it. New `storyInset()` insets edge content on
+  every 9:16 export (7.5% top / 10% bottom) so Instagram's own controls stop covering captions;
+  BLEED picks it up too. Templates can now declare a `bestAspect`, shown as a badge and applied
+  on selection.
+- **Haptics** (`src/utils/haptics.ts`, `expo-haptics`) on the shutter, the card flip — with the
+  *heavier* notification for a holo pull, the one place the haptic carries information — adding
+  to the binder, vibe and filter selection, the set-complete settle, page turns and destructive
+  confirms. Every call is fire-and-forget and swallows its rejection; simulators, Android
+  handsets without the hardware and users who've turned it off must never surface an error, and
+  a capture must never wait on a vibration.
+- `cards` gained `thumb_uri` and `filter_id` (ALTER-guarded, same pattern as `title`).
+  `insertCard` takes `createdAt` so restore preserves the original timestamp.
+  `npx tsc --noEmit` clean; iOS and Android bundles both build. **Still no simulator or device
+  in this environment** — the Skia pipeline, the blend-mode previews and the archive round trip
+  are verified by construction and by the type/bundle passes, not by looking at a photo.
+
+- **First real device run, and it found three things.** The previous pass was the first code in
+  this repo ever exercised on hardware. Reported: photos coming out wrongly oriented, filters
+  reading as opaque sheets rather than filters, and a request to see the manual controls working
+  live in the viewfinder.
+  - **Orientation — the previous pass trusted the wrong number.** There are *two* orientation
+    values for a capture and they are not the same. The canonical one is TIFF/IFD0 tag 0x0112 in
+    the file, which is what every decoder honours, React Native's `<Image>` included. The other
+    is `photo.exif.Orientation` as reported by expo-camera, which its iOS implementation derives
+    from the `UIImage`'s own orientation and writes into the EXIF **sub-dictionary**
+    (`ExpoCameraUtils.data`, `ios/Common/ExpoCameraUtils.swift`) — not where the canonical tag
+    lives. So it is computed independently of the file's tag and can disagree with it. Skia
+    applies neither, so the develop pass has to reproduce exactly what `<Image>` does or the
+    photo changes orientation the moment it is developed. New `src/camera/exif.ts` parses the
+    real tag out of the JPEG bytes (APP1 → TIFF header → IFD0 → 0x0112, both byte orders);
+    `developPhoto` now reads the file's bytes once and uses them for both the tag and the
+    decode, and `exif: true` is gone from the capture calls. **This is the invariant to keep:
+    whatever `<Image>` honours, the develop pass must apply — never what a camera API reports.**
+  - **Filters are now real filters.** The `mixBlendMode` overlay stack from the previous pass
+    was wrong twice over — the layers read as coloured curtains, and blend modes composite
+    unreliably against a native camera preview layer. Replaced entirely with React Native's
+    **`filter` style prop** (RN 0.81, `StyleSheetTypes.d.ts` → `FilterFunction`), applied to a
+    `View` wrapping the `CameraView`: `filter` affects a view's whole subtree, so the live
+    preview is genuinely filtered rather than covered. Every preset now declares real
+    `brightness`/`contrast`/`saturate`/`sepia`/`grayscale`/`hueRotate` functions plus an optional
+    `tint` **capped at 0.16 opacity** for hue casts no filter primitive expresses. No blend modes
+    anywhere, so the Android API 29 gate is gone too.
+  - **The manual controls preview live.** `buildPreviewFilter(recipe)` folds the preset *and* the
+    user's exposure/contrast/saturation into one filter array driven by the same numbers as
+    `buildDevelopMatrix`, so dragging a slider changes the viewfinder by the amount it will
+    change the photo — exposure via `brightness: 2^ev`, matching the EV readout exactly. Two
+    exceptions, both handled honestly: warmth is a faint amber/blue tint (there is no colour-
+    temperature filter primitive, and `sepia` has no cool counterpart so a warm/cool slider built
+    on it would be asymmetric), and grain is a Skia `<Canvas>` + `<FractalNoise>` + `<ColorMatrix>`
+    layer using the *same* noise shader the bake uses, mounted outside the filtered wrapper so
+    exposure and contrast don't move the grain around. Drawer badge now reads "LIVE PREVIEW".
+- **Accessibility gap closed** (identified in the audit; 2 accessibility props existed in the
+  whole codebase). Every icon-only control now carries a role and a label — camera close/torch/
+  flash/library/flip/shutter/filter swatches, card detail close/edit/share/shuffle/delete,
+  settings close and the reminder steppers, export close, binder and sets share, today's
+  settings, binder grid cells (labelled with title, day and rarity), reveal's flip target and
+  vibe chips. `Slider` gained `accessibilityRole="adjustable"` with increment/decrement actions
+  and a spoken `valueText` — a drag gesture is otherwise completely invisible to a screen
+  reader, which mattered most on exactly the manual controls this pass made real.
+- **Store identifiers** (also from the audit): `ios.bundleIdentifier` and `android.package` set
+  to `com.dailypull.app`, with `buildNumber`/`versionCode`, plus a new `eas.json` with
+  development/preview/production build profiles. **Change the identifier before the first
+  publish if a different one is wanted — it is permanent once either store has accepted a
+  build.** `supportsTablet` flipped to `false`: every measurement derives from a 344pt mockup
+  width clamped to 1.18×, so an iPad would render a stretched phone, and leaving the flag on
+  commits to iPad screenshots and an iPad review. `userInterfaceStyle` corrected from `light` to
+  `dark` — the app's default skin is Warm Binder and the old value forced light system keyboards
+  and sheets under it.
+- `npx tsc --noEmit` clean; both bundles build. The orientation fix is a structural correction
+  traced to expo-camera's own source, not another inference — but like everything else here it
+  is unverified on a device from this environment.
+
+- **The live-filtered viewfinder is not buildable on expo-camera. Develop moved to its own
+  screen.** The `filter`-prop approach from the previous pass broke the camera on device:
+  selecting any filter or touching any slider turned the preview black, froze it, or rendered
+  only part of the frame. Cause: React Native's `filter` forces the view it is applied to into
+  an **offscreen layer**, and a native camera surface is not part of that rasterisation — so
+  wrapping `CameraView` in a filtered `View` breaks the preview outright. It also explains the
+  partial/"square" preview, since expo-camera's preview is `FILL` and only letterboxes if
+  `ratio` is set, which it isn't.
+  **Three approaches have now failed on device, and the file headers say so, so nobody retries
+  them:** (1) flat alpha tints — work, but can never desaturate, so monochrome presets are
+  impossible; (2) `mixBlendMode` — composites unreliably over a native preview and, when
+  ignored, an opaque black `saturation` layer is a black screen; (3) RN's `filter` prop — the
+  above. Filtering live frames genuinely requires frame processors, i.e. vision-camera.
+  What replaced it:
+  - **New `DevelopScreen`** (`Develop: { sourceUri, filterId }`), sitting between Camera and
+    Reveal. It shows the capture through a Skia `<Canvas>` with the **same** colour matrix, the
+    same `FractalNoise` grain and the same vignette that `developPhoto` bakes in — so the
+    preview is exact rather than approximate, and every develop slider updates it in real time.
+    `prepareEditableImage` does the orientation and downscale once (to 1200px) and returns a
+    `makeNonTextureImage()` CPU copy that outlives its surface; each slider frame is then a
+    single GPU draw of that image with a colour filter, not a re-decode. Confirming re-runs the
+    recipe at full resolution against the original capture.
+  - **`CameraScreen` no longer filters anything.** `CameraView` sits at `absoluteFill` with
+    nothing wrapping it; the only thing drawn over it is one plain translucent tint, capped
+    low, explicitly a *hint* at the chosen filter. The manual drawer is now sensor-only (zoom,
+    focus) and carries a line saying where exposure/contrast/warmth/grain went. Capture
+    `replace`s into Develop, so the camera unmounts and releases its session before Skia starts
+    GPU work.
+  - This also resolves the concern flagged when destructive baking was chosen: the user now
+    sees and adjusts the photograph *before* it is committed, instead of first meeting it on
+    the card.
+  - `FilterDef` lost its `preview` field and `buildPreviewFilter`/`buildPreviewTints` were
+    deleted — dead code describing an abandoned approach is worse than none.
+- **Camera layout: a `ScrollView` was eating half the screen.** Reported as "the square is
+  squished to the top half and the filters are in the middle". Cause: React Native's
+  `ScrollView` carries `flexGrow: 1, flexShrink: 1` in its own base style. When the filter strip
+  became a horizontal `ScrollView` (to hold 15 presets rather than 5) it inherited that, so in
+  the column it competed with the `flex: 1` viewfinder and took roughly half the vertical space.
+  **`contentContainerStyle` cannot fix this** — the growth is on the ScrollView's own root, so
+  it needs `style={{ flexGrow: 0 }}`. Applied here and to both ScrollViews on the develop
+  screen, which had the same latent bug.
+  While fixing it, the framing was also **wrong, not just off-centre**, and that is worth
+  recording: the preview is full-bleed, expo-camera crops the capture to the preview's aspect
+  (`CameraPhotoCapture.swift` uses `AVMakeRect(aspectRatio: previewSize, …)`), and `CardFace`
+  then centre-crops that to a square. So the part of the picture that survives onto the card is
+  the centre square of the **whole screen** — not the centre of an inset viewfinder box, which
+  is where the old guide drew it. The inset box is gone; the guide is now two flexible scrims
+  with a full-width square between them, which centres it exactly and shows the cut regions
+  literally. Rule-of-thirds lines moved inside the square, since that is the frame being
+  composed.
+  `chrome` now has exactly two children (top bar, and one wrapper around the bottom group) so
+  its `space-between` has a well-defined job.
+  **Not touched: `ExportScreen`'s vertical `controls` ScrollView has the same `flexGrow: 1`
+  against a `flex: 1` stage.** It hasn't been reported as wrong and the resulting split may be
+  what makes that screen look right, so it was left alone rather than changed blind — but it is
+  the same shape of bug and worth a look on device.
+- **Grain preview was opaque static, and orientation was still being inferred.** Both from
+  device testing.
+  - **Static.** The develop screen's grain layer pinned the colour matrix's alpha to 1 and put
+    the strength in `<Fill opacity>`, where the bake puts the strength *in the matrix's alpha*
+    and composites with soft-light. So the preview drew fully opaque noise over the photo. It
+    looked like "every filter is broken" because 8 of the 15 presets carry grain of their own.
+    Fixed by exporting `grainColorMatrix`/`GRAIN_FREQUENCY`/`GRAIN_OCTAVES` from `develop.ts`
+    and having both paths use them — one definition, so they cannot drift again. Note the
+    failure mode is now benign: with the strength in the matrix, an unsupported blend mode
+    degrades to a faint grey veil rather than to opaque static.
+  - **Orientation, resolved empirically instead of by reading the tag.** Photos were coming out
+    rotated 90°. The previous fix read the file's own EXIF tag, which was still the wrong basis:
+    expo-camera's iOS path writes the JPEG through `UIImage.jpegData()`, which **bakes** the
+    orientation into the pixels, and then stamps the *pre-baked* orientation into the file's
+    EXIF anyway (`ExpoCameraUtils.data`). The result is a file with upright pixels and a tag
+    saying to turn it — so honouring the tag rotated every portrait.
+    New `resolveOrientation` compares two independent facts about the same file instead of
+    trusting one claim: the **decoded pixel dimensions** against the **dimensions the capture
+    API reported**. Agree → the pixels are already right, do nothing whatever the tag says.
+    Transposed → really is on its side, turn it, and the tag chooses the direction (6 when it
+    doesn't know). `sourceWidth`/`sourceHeight` are plumbed through the Develop route from
+    `photo.width/height` and `asset.width/height`. **This is the standing rule: never rotate on
+    a tag alone — measure.**
+- **Filters now live in exactly one place.** The user asked, reasonably, why a filter could be
+  picked on the camera *and* again after the shutter. Since a live-filtered viewfinder is
+  impossible here, the camera's strip could never show what it did — two pickers where only the
+  later one told the truth. The camera's filter strip and its `tint` hint are gone (and
+  `FilterDef.tint` with them); the develop screen owns filters, and gained a **FILTERS / ADJUST**
+  tab pair so both halves are visible rather than hidden behind an icon.
+- **Grid toggle.** A `grid`/`grid-outline` button in the camera's top bar hides the crop scrims
+  and rule-of-thirds lines, for framing against the whole sensor image. Asked for directly.
+- **Camera zoom: pinch, shortcut stops, and tap-to-dismiss.** All three requested directly, and
+  the previous round's fixes confirmed good on device.
+  - **The zoom prop is exponential, and its scale is unknowable from JS.** expo-camera's iOS
+    implementation is `device.videoZoomFactor = pow(device.activeFormat.videoMaxZoomFactor,
+    zoom)` (`CameraSessionManager.updateZoom`), so magnification is `max ^ zoom` — but
+    `videoMaxZoomFactor` has **no getter on `CameraView`**. New `src/camera/zoom.ts` holds the
+    inverse (`log(factor) / log(max)`) and a single `ASSUMED_MAX_FACTOR` calibration constant.
+    **The 1× stop is exact (zoom 0); the 2× stop and the pinch rate both depend on that guess
+    and are approximate.** One constant to tune if it lands wrong on a device.
+  - **0.5× is a lens change, not a zoom** — no amount of zoom makes a lens wider than it is. It
+    switches `selectedLens` to the ultra-wide, and the stop is hidden when there isn't one
+    (which is also correct on a phone with no ultra-wide). Caveat worth knowing:
+    `getAvailableLenses` returns each device's **`localizedName`**, so identifying the ultra-wide
+    means matching `/ultra/i` against a localised string. It fails safe — no match just hides
+    the stop — but it will not work outside English.
+  - **Pinch** is a root-level `Gesture.Pinch`, so it can start anywhere on the preview while
+    single-finger taps still reach their own handlers. It is multiplicative in magnification
+    (`zoom += log(scale) / log(max)`), which is what makes it feel even across the range given
+    the exponential prop. The worklet captures only numbers, `Math` and `runOnJS` —
+    `LN_MAX_FACTOR` is precomputed on the JS thread specifically so nothing calls an imported
+    function from the UI runtime, which is the crash this codebase has already paid for once.
+  - Lens availability is read in an effect keyed on the camera ref *and* `facing`, not from
+    `onCameraReady` — that event can fire against a render where the ref hadn't been captured
+    yet, and the front camera has different lenses. Flipping the camera clears the lens and zoom.
+  - Tapping anywhere above the manual drawer closes it, via a `flex: 1` Pressable sitting
+    between the top bar and the drawer in `chrome`'s column.
+- **Process note.** `src/camera/filters.ts` was briefly corrupted by editing it with
+  `Get-Content` + `Set-Content`: `Get-Content` reads as ANSI by default, so every em dash and
+  curly quote round-tripped into mojibake. Repaired, and the whole of `src/` was swept for
+  stray U+00E2 to confirm nothing else was hit. **Use the Edit tool for source files**, or pass
+  `-Encoding utf8` to *both* halves of a PowerShell read/write.
+- `npx tsc --noEmit` clean; both bundles build.
+
 ## Open decisions
 
 - **"Look back" (random past-card recall) and a dedicated empty-first-run screen were
@@ -492,8 +781,30 @@ app.
   Everdot home-screen mockup's settings-gear placement (see `design-reference/home-
   screen.html`) even though that reference predates the Sets/skin concept entirely. Flag if
   a different location (e.g. inside Binder, or a dedicated Settings screen) was intended.
-- **Manual camera's zoom/exposure controls are discrete tap-stops, not continuous drag
-  sliders.** (Separate from the exposure/ISO-being-fake question, which the user has now
+- **Filters bake destructively — decided by the user, with the trade-offs on the table.** The
+  alternatives offered were keeping the original alongside a filtered derivative (~2x storage,
+  fully re-editable) or storing parameters and applying them at render (no extra storage, but
+  every surface would have to draw through Skia). Destructive was chosen. Two consequences
+  follow and neither is a bug: **a filter can never be changed or removed after capture**, and
+  there is no unfiltered negative behind the stored photo — which is why Export's toggle is now
+  worded "Use the photo on its own" rather than "raw". A third consequence worth watching in
+  real use: the develop pass runs *before* the reveal screen, so the user commits to a filter
+  from the live preview and first sees the finished photograph on the card. If that turns out
+  to feel wrong, the fix is a develop step on the reveal screen, which would require revisiting
+  the destructive decision.
+- **`react-native-vision-camera` is now the only route to a filtered viewfinder**, and the
+  device testing above is the evidence. The user already chose "Skia now, VisionCamera after";
+  what has changed is that this is no longer a nice-to-have. Frame processors are the *only*
+  mechanism that can filter live camera frames — every JS-side compositing trick has now been
+  tried and failed on hardware. It would also buy real sensor exposure compensation and a real
+  tap-to-focus point (instead of the binary AF lock). It would still not buy manual ISO or
+  shutter; no RN camera library exposes those. Cost is a full `CameraScreen` rewrite and a
+  heavier native dependency. Worth noting the develop screen would remain useful either way —
+  adjusting a photo after taking it is not merely a workaround.
+- ~~**Manual camera's zoom/exposure controls are discrete tap-stops, not continuous drag
+  sliders.**~~ — RESOLVED twice over: `Slider.tsx` made them real drag sliders, and the
+  exposure/ISO question is settled by the develop pipeline above (exposure is real and acts on
+  the still; ISO is gone from the UI rather than faked). Original note kept for the reasoning: (Separate from the exposure/ISO-being-fake question, which the user has now
   confirmed final — see the follow-up pass above.) PLAN.md says "sliders"; building a real
   draggable slider would mean either a new dependency (`@react-native-community/slider`) or a
   custom gesture-driven drag component. Given this step is explicitly post-MVP and
